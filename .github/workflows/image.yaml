@@ -79,10 +79,9 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Прочитать зафиксированные коммиты dotfiles
+      - name: Прочитать зафиксированный коммит dotfiles
         run: |
           echo "DOTFILES_REF=$(sed -n 's/^ARG DOTFILES_REF=//p' Dockerfile | cut -c1-7)" >> "$GITHUB_ENV"
-          echo "NVIM_REF=$(sed -n 's/^ARG NVIM_REF=//p' Dockerfile | cut -c1-7)" >> "$GITHUB_ENV"
 
       # GHCR показывает на странице пакета только source, description и licenses.
       # У образа с индексом description берётся из annotations, поэтому они пишутся и в индекс
@@ -96,9 +95,9 @@ jobs:
             type=raw,value=latest
             type=sha,prefix=sha-
           labels: |
-            org.opencontainers.image.description=Dev environment · dotfiles ${{ env.DOTFILES_REF }} · nvim ${{ env.NVIM_REF }}
+            org.opencontainers.image.description=Dev environment · dotfiles ${{ env.DOTFILES_REF }}
           annotations: |
-            org.opencontainers.image.description=Dev environment · dotfiles ${{ env.DOTFILES_REF }} · nvim ${{ env.NVIM_REF }}
+            org.opencontainers.image.description=Dev environment · dotfiles ${{ env.DOTFILES_REF }}
 
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
