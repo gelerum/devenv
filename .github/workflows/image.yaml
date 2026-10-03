@@ -79,13 +79,26 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Прочитать зафиксированные коммиты dotfiles
+        run: |
+          echo "DOTFILES_REF=$(sed -n 's/^ARG DOTFILES_REF=//p' Dockerfile | cut -c1-7)" >> "$GITHUB_ENV"
+          echo "NVIM_REF=$(sed -n 's/^ARG NVIM_REF=//p' Dockerfile | cut -c1-7)" >> "$GITHUB_ENV"
+
+      # GHCR показывает на странице пакета только source, description и licenses.
+      # У образа с индексом description берётся из annotations, поэтому они пишутся и в индекс
       - id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        env:
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
         with:
           images: ${{ env.IMAGE }}
           tags: |
             type=raw,value=latest
             type=sha,prefix=sha-
+          labels: |
+            org.opencontainers.image.description=Dev environment · dotfiles ${{ env.DOTFILES_REF }} · nvim ${{ env.NVIM_REF }}
+          annotations: |
+            org.opencontainers.image.description=Dev environment · dotfiles ${{ env.DOTFILES_REF }} · nvim ${{ env.NVIM_REF }}
 
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
@@ -94,5 +107,6 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
