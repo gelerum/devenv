@@ -102,5 +102,7 @@ RUN mkdir -p ~/.config \
  && cd /opt/dotfiles && stow -t ~ $DOTFILES_PACKAGES \
  && bat cache --build
 
+LABEL devenv.dotfiles.ref=$DOTFILES_REF devenv.nvim.ref=$NVIM_REF
+
 WORKDIR /work
 CMD ["sleep", "infinity"]
