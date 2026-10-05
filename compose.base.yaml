@@ -1,27 +1,18 @@
 services:
   dev:
-    # Готовый образ собирается в CI. Чтобы закрепить конкретную сборку, задайте в .env
-    # DEVENV_IMAGE=ghcr.io/gelerum/devenv:sha-<коммит> (или @sha256:<digest>).
-    # Локальная сборка: docker compose build. Все версии зафиксированы в Dockerfile
-    image: ${DEVENV_IMAGE:-ghcr.io/gelerum/devenv:latest}
+    extends:
+      file: compose.common.yaml
+      service: common
+    # Локальная сборка: docker compose build. Все версии зафиксированы в Dockerfile.
+    # Инструменты neovim в образ: раскомментируйте args
     build:
       context: .
-    init: true
-    env_file:
-      - ${HOME}/.config/devenv/claude.env
-    environment:
-      - TERM
-      - COLORTERM
-      - EDITOR=nvim
-
-      - GIT_CONFIG_COUNT=2
-      - GIT_CONFIG_KEY_0=commit.gpgsign
-      - GIT_CONFIG_VALUE_0=false
-      - GIT_CONFIG_KEY_1=tag.gpgsign
-      - GIT_CONFIG_VALUE_1=false
+      # args:
+      #   NVIM_TOOLS: 1
+      #   DEVENV_LANGS: "go python"
     volumes:
       - .:/work:z
-      - claude-projects:/home/q/.claude/projects
 
 volumes:
-  claude-projects: {}
+  claude-projects:
+    name: claude-projects

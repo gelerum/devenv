@@ -1,0 +1,22 @@
+# Общие настройки контейнеров. Подключаются через extends в compose.base.yaml и compose.task.yaml.
+# Том claude-projects в тех файлах объявлен с name: claude-projects, поэтому он общий для всех
+services:
+  common:
+    # Готовый образ собирается в CI. Чтобы закрепить конкретную сборку, задайте в .env
+    # DEVENV_IMAGE=ghcr.io/gelerum/devenv:sha-<коммит> (или @sha256:<digest>)
+    image: ${DEVENV_IMAGE:-ghcr.io/gelerum/devenv:latest}
+    init: true
+    env_file:
+      - ${HOME}/.config/devenv/claude.env
+    environment:
+      - TERM
+      - COLORTERM
+      - EDITOR=nvim
+
+      - GIT_CONFIG_COUNT=2
+      - GIT_CONFIG_KEY_0=commit.gpgsign
+      - GIT_CONFIG_VALUE_0=false
+      - GIT_CONFIG_KEY_1=tag.gpgsign
+      - GIT_CONFIG_VALUE_1=false
+    volumes:
+      - claude-projects:/home/q/.claude/projects

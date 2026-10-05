@@ -7,61 +7,84 @@ on:
   # Шлёт workflow notify-devenv из репозитория dotfiles
   repository_dispatch:
     types: [dotfiles-updated]
+  # Раз в неделю: обновить все версии и пересобрать
+  schedule:
+    - cron: '0 3 * * 1'
   workflow_dispatch:
+    inputs:
+      update:
+        description: Что обновить перед сборкой
+        type: choice
+        options: [none, dotfiles, all]
+        default: none
 
-# Сборки идут строго по очереди, чтобы обновления dotfiles не перетирали друг друга
+# Сборки идут строго по очереди, чтобы обновления не перетирали друг друга
 concurrency:
   group: image
   cancel-in-progress: false
 
 env:
   IMAGE: ghcr.io/${{ github.repository }}
-  DOTFILES_REPO: https://github.com/gelerum/dotfiles
 
 jobs:
-  # Закрепляет в Dockerfile текущий коммит dotfiles. Так каждый образ соответствует
+  # Обновляет версии в Dockerfile и коммитит. Так каждый образ соответствует
   # коммиту этого репозитория и его можно пересобрать заново
-  bump-dotfiles:
-    if: github.event_name == 'repository_dispatch'
+  update:
+    if: >-
+      github.event_name == 'schedule' ||
+      github.event_name == 'repository_dispatch' ||
+      (github.event_name == 'workflow_dispatch' && inputs.update != 'none')
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      MODE: ${{ github.event_name == 'schedule' && 'all' || github.event_name == 'repository_dispatch' && 'dotfiles' || inputs.update }}
+      BRANCH: ${{ github.event.repository.default_branch }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     outputs:
       sha: ${{ steps.commit.outputs.sha }}
+      changed: ${{ steps.commit.outputs.changed }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          ref: ${{ env.BRANCH }}
 
-      - name: Обновить DOTFILES_REF и NVIM_REF
-        run: |
-          git clone -q --filter=blob:none --no-checkout "$DOTFILES_REPO" "$RUNNER_TEMP/dotfiles"
-          ref=$(git -C "$RUNNER_TEMP/dotfiles" rev-parse HEAD)
-          nvim=$(git -C "$RUNNER_TEMP/dotfiles" log -1 --format=%H HEAD -- nvim)
-          sed -i -E \
-            -e "s/^ARG DOTFILES_REF=.*/ARG DOTFILES_REF=$ref/" \
-            -e "s/^ARG NVIM_REF=.*/ARG NVIM_REF=$nvim/" \
-            Dockerfile
-          echo "DOTFILES_SHORT=${ref::7}" >> "$GITHUB_ENV"
-
+      # Если пока шло обновление, в ветку что-то запушили, push отклонят. Тогда
+      # обновление повторяется поверх свежей ветки, а не через rebase — так конфликтов не бывает.
       # Push через GITHUB_TOKEN не запускает workflow повторно, поэтому сборка идёт в этом же запуске
       - id: commit
-        name: Закоммитить
+        name: Обновить и закоммитить
         run: |
-          if git diff --quiet; then
-            echo "Dockerfile уже указывает на актуальный коммит dotfiles"
-            exit 0
-          fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -qam "Update dotfiles to $DOTFILES_SHORT"
-          git push -q
-          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          for attempt in 1 2 3; do
+            git fetch -q origin "$BRANCH"
+            git reset -q --hard "origin/$BRANCH"
+            scripts/update-versions.sh "$MODE"
+            if git diff --quiet; then
+              echo "Версии уже актуальны"
+              echo "changed=false" >> "$GITHUB_OUTPUT"
+              echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            changed=$(git diff -U0 Dockerfile | sed -nE 's/^\+ARG ([A-Z_]+)=.*/\1/p' | grep -v _SHA256 | paste -sd, - | sed 's/,/, /g')
+            git commit -qam "Update $changed"
+            if git push -q origin "HEAD:$BRANCH"; then
+              echo "changed=true" >> "$GITHUB_OUTPUT"
+              echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "Push отклонён, попытка $attempt"
+          done
+          exit 1
 
   build:
-    needs: bump-dotfiles
-    # Запускается и когда bump-dotfiles пропущен (обычный push)
-    if: ${{ !failure() && !cancelled() }}
+    needs: update
+    # После обычного push update пропускается. После автоматического обновления
+    # собираем, только если что-то изменилось; ручной запуск собирает всегда
+    if: >-
+      !failure() && !cancelled() &&
+      (needs.update.result == 'skipped' || needs.update.outputs.changed == 'true' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -69,7 +92,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.bump-dotfiles.outputs.sha || github.sha }}
+          ref: ${{ needs.update.outputs.sha || github.sha }}
 
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
@@ -80,8 +103,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Прочитать зафиксированный коммит dotfiles
-        run: |
-          echo "DOTFILES_REF=$(sed -n 's/^ARG DOTFILES_REF=//p' Dockerfile | cut -c1-7)" >> "$GITHUB_ENV"
+        run: echo "DOTFILES_REF=$(sed -n 's/^ARG DOTFILES_REF=//p' Dockerfile | cut -c1-7)" >> "$GITHUB_ENV"
 
       # GHCR показывает на странице пакета только source, description и licenses.
       # У образа с индексом description берётся из annotations, поэтому они пишутся и в индекс
@@ -109,3 +131,17 @@ jobs:
           annotations: ${{ steps.meta.outputs.annotations }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # Оставляет 10 последних сборок. Каждая сборка — это индекс, образ и attestation;
+  # этот action удаляет их вместе и не ломает оставшиеся образы
+  cleanup:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - uses: dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f # v1.2.2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          keep-n-tagged: 10
+          delete-untagged: true
