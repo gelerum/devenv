@@ -15,3 +15,7 @@ services:
 volumes:
   claude-projects:
     name: claude-projects
+  devenv-cache:
+    name: devenv-cache
+  devenv-mason:
+    name: devenv-mason

@@ -3,16 +3,16 @@ services:
     extends:
       file: compose.common.yaml
       service: common
-    # Локальная сборка: docker compose build. Все версии зафиксированы в Dockerfile.
-    # Инструменты neovim в образ: раскомментируйте args
     build:
       context: .
-      # args:
-      #   NVIM_TOOLS: 1
-      #   DEVENV_LANGS: "go python"
+    working_dir: ${PWD}
     volumes:
-      - .:/work:z
+      - ${PWD}:${PWD}:z
 
 volumes:
   claude-projects:
     name: claude-projects
+  devenv-cache:
+    name: devenv-cache
+  devenv-mason:
+    name: devenv-mason

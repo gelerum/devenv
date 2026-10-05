@@ -4,10 +4,9 @@ on:
   push:
     branches: [main]
     paths-ignore: ['**.md']
-  # Шлёт workflow notify-devenv из репозитория dotfiles
+  # из dotfiles (notify-devenv)
   repository_dispatch:
     types: [dotfiles-updated]
-  # Раз в неделю: обновить все версии и пересобрать
   schedule:
     - cron: '0 3 * * 1'
   workflow_dispatch:
@@ -18,7 +17,6 @@ on:
         options: [none, dotfiles, all]
         default: none
 
-# Сборки идут строго по очереди, чтобы обновления не перетирали друг друга
 concurrency:
   group: image
   cancel-in-progress: false
@@ -27,8 +25,6 @@ env:
   IMAGE: ghcr.io/${{ github.repository }}
 
 jobs:
-  # Обновляет версии в Dockerfile и коммитит. Так каждый образ соответствует
-  # коммиту этого репозитория и его можно пересобрать заново
   update:
     if: >-
       github.event_name == 'schedule' ||
@@ -49,9 +45,8 @@ jobs:
         with:
           ref: ${{ env.BRANCH }}
 
-      # Если пока шло обновление, в ветку что-то запушили, push отклонят. Тогда
-      # обновление повторяется поверх свежей ветки, а не через rebase — так конфликтов не бывает.
-      # Push через GITHUB_TOKEN не запускает workflow повторно, поэтому сборка идёт в этом же запуске
+      # Push через GITHUB_TOKEN не запускает workflow, поэтому сборка - в этом же запуске.
+      # Если push отклонён, обновление повторяется поверх свежей ветки
       - id: commit
         name: Обновить и закоммитить
         run: |
@@ -80,8 +75,6 @@ jobs:
 
   build:
     needs: update
-    # После обычного push update пропускается. После автоматического обновления
-    # собираем, только если что-то изменилось; ручной запуск собирает всегда
     if: >-
       !failure() && !cancelled() &&
       (needs.update.result == 'skipped' || needs.update.outputs.changed == 'true' || github.event_name == 'workflow_dispatch')
@@ -105,8 +98,7 @@ jobs:
       - name: Прочитать зафиксированный коммит dotfiles
         run: echo "DOTFILES_REF=$(sed -n 's/^ARG DOTFILES_REF=//p' Dockerfile | cut -c1-7)" >> "$GITHUB_ENV"
 
-      # GHCR показывает на странице пакета только source, description и licenses.
-      # У образа с индексом description берётся из annotations, поэтому они пишутся и в индекс
+      # GHCR берёт description образа с индексом из annotations
       - id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         env:
@@ -132,8 +124,6 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # Оставляет 10 последних сборок. Каждая сборка — это индекс, образ и attestation;
-  # этот action удаляет их вместе и не ломает оставшиеся образы
   cleanup:
     needs: build
     runs-on: ubuntu-latest

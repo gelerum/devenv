@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
-# Обновляет зафиксированные версии и хеши в Dockerfile до последних.
-#   scripts/update-versions.sh dotfiles — только коммиты dotfiles
-#   scripts/update-versions.sh all      — всё: Ubuntu, снимок apt, инструменты, dotfiles
-# GITHUB_TOKEN (необязательно) снимает лимит запросов к API GitHub.
+# Обновляет версии и хеши в Dockerfile: dotfiles - только коммиты dotfiles, all - всё
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -11,7 +8,7 @@ mode=${1:?укажите dotfiles или all}
 arg() { sed -n "s/^ARG $1=//p" Dockerfile; }
 set_arg() { sed -i -E "s|^ARG $1=.*|ARG $1=$2|" Dockerfile; }
 
-# Версия и sha256 файла из последнего релиза на GitHub. В имени файла {v} заменяется на версию
+# github_release <repo> <файл> -> "<версия> <sha256>"; {v} в имени заменяется на версию
 github_release() {
 	local repo=$1 asset=$2 json v
 	json=$(curl -fsSL ${GITHUB_TOKEN:+-H "Authorization: Bearer $GITHUB_TOKEN"} \
@@ -57,8 +54,21 @@ update_tools() {
 	read -r v sha < <(github_release ajeetdsouza/zoxide 'zoxide-{v}-x86_64-unknown-linux-musl.tar.gz')
 	set_arg ZOXIDE_VERSION "$v" && set_arg ZOXIDE_SHA256 "$sha"
 
+	read -r v sha < <(github_release yorukot/superfile 'superfile-linux-v{v}-amd64.tar.gz')
+	set_arg SUPERFILE_VERSION "$v" && set_arg SUPERFILE_SHA256 "$sha"
+
 	set_arg FZF_TAB_REF "$(git ls-remote https://github.com/Aloxaf/fzf-tab HEAD | cut -f1)"
 	set_arg ZSH_HISTORY_SUBSTRING_SEARCH_REF "$(git ls-remote https://github.com/zsh-users/zsh-history-substring-search HEAD | cut -f1)"
+
+	read -r v sha < <(github_release astral-sh/uv uv-x86_64-unknown-linux-gnu.tar.gz)
+	set_arg UV_VERSION "$v" && set_arg UV_SHA256 "$sha"
+
+	read -r v sha < <(github_release conda-forge/miniforge 'Miniforge3-{v}-Linux-x86_64.sh')
+	set_arg MINIFORGE_VERSION "$v" && set_arg MINIFORGE_SHA256 "$sha"
+
+	v=$(curl -fsSL https://static.rust-lang.org/rustup/release-stable.toml | sed -n "s/^version = '\(.*\)'/\1/p")
+	set_arg RUSTUP_VERSION "$v"
+	set_arg RUSTUP_SHA256 "$(curl -fsSL "https://static.rust-lang.org/rustup/archive/$v/x86_64-unknown-linux-gnu/rustup-init.sha256" | cut -d' ' -f1)"
 
 	json=$(curl -fsSL 'https://go.dev/dl/?mode=json')
 	set_arg GO_VERSION "$(jq -r '.[0].version | ltrimstr("go")' <<<"$json")"
@@ -75,7 +85,6 @@ all) update_tools && update_dotfiles ;;
 *) echo "неизвестный режим: $mode" >&2 && exit 1 ;;
 esac
 
-# Пустое значение значит, что что-то не нашлось: лучше упасть, чем закоммитить битый Dockerfile
 if grep -qE '^ARG [A-Z_]+(_VERSION|_SHA256|_DIGEST|_REF|_SNAPSHOT)=$' Dockerfile; then
 	grep -nE '^ARG [A-Z_]+=$' Dockerfile >&2
 	exit 1
