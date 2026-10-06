@@ -22,6 +22,8 @@ ARG ZOXIDE_VERSION=0.10.0
 ARG ZOXIDE_SHA256=2d93385b99f3e82cf2701609a1bffcad863fbeb75aa3fe7eb6be4d29be68b1ae
 ARG SUPERFILE_VERSION=1.6.0
 ARG SUPERFILE_SHA256=d45b0e95072629a6aa7983a84eedca9cd7a98861e67ef91be1415496e3dda309
+ARG LIBTEXPRINTF_VERSION=1.31
+ARG LIBTEXPRINTF_SHA256=8ca5a11d387631a34979295f73f9a2eccc87e17c690dcd4c1454eb65a9e372bc
 ARG CLAUDE_CODE_VERSION=2.1.285
 ARG CLAUDE_CODE_SHA256=33dad1ec615a2e08cc78b494f05c110e49916de2c79d78ec8799ebf46b233d29
 ARG FZF_TAB_REF=24105b15714bfec37989ed5c5b6e60f572253019
@@ -73,6 +75,17 @@ ARG SUPERFILE_VERSION SUPERFILE_SHA256
 RUN fetch "https://github.com/yorukot/superfile/releases/download/v${SUPERFILE_VERSION}/superfile-linux-v${SUPERFILE_VERSION}-amd64.tar.gz" "$SUPERFILE_SHA256" /tmp/superfile.tar.gz \
  && tar -xzf /tmp/superfile.tar.gz -C /usr/local/bin --strip-components=3 "./dist/superfile-linux-v${SUPERFILE_VERSION}-amd64/spf" \
  && rm /tmp/superfile.tar.gz
+
+# utftex - формулы LaTeX в Unicode-текст. Пакета в Ubuntu нет, собирается из исходников
+ARG LIBTEXPRINTF_VERSION LIBTEXPRINTF_SHA256
+RUN fetch "https://github.com/bartp5/libtexprintf/releases/download/v${LIBTEXPRINTF_VERSION}/libtexprintf-${LIBTEXPRINTF_VERSION}.tar.gz" "$LIBTEXPRINTF_SHA256" /tmp/libtexprintf.tar.gz \
+ && tar -xzf /tmp/libtexprintf.tar.gz -C /tmp \
+ && cd "/tmp/libtexprintf-${LIBTEXPRINTF_VERSION}" \
+ && ./configure --prefix=/usr/local \
+ && make -j"$(nproc)" \
+ && make install \
+ && ldconfig \
+ && cd / && rm -rf /tmp/libtexprintf*
 
 ARG STARSHIP_VERSION STARSHIP_SHA256
 RUN fetch "https://github.com/starship/starship/releases/download/v${STARSHIP_VERSION}/starship-x86_64-unknown-linux-musl.tar.gz" "$STARSHIP_SHA256" /tmp/starship.tar.gz \

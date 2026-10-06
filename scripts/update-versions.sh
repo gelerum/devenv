@@ -54,6 +54,9 @@ update_tools() {
 	read -r v sha < <(github_release ajeetdsouza/zoxide 'zoxide-{v}-x86_64-unknown-linux-musl.tar.gz')
 	set_arg ZOXIDE_VERSION "$v" && set_arg ZOXIDE_SHA256 "$sha"
 
+	read -r v sha < <(github_release bartp5/libtexprintf 'libtexprintf-{v}.tar.gz')
+	set_arg LIBTEXPRINTF_VERSION "$v" && set_arg LIBTEXPRINTF_SHA256 "$sha"
+
 	read -r v sha < <(github_release yorukot/superfile 'superfile-linux-v{v}-amd64.tar.gz')
 	set_arg SUPERFILE_VERSION "$v" && set_arg SUPERFILE_SHA256 "$sha"
 
