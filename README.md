@@ -1,25 +1,28 @@
 # devenv
 
-Docker-окружение для разработки: Ubuntu, zsh, Neovim, Claude Code и мои dotfiles. Защищает хост от агента.
+Окружение для разработки в rootless podman: Ubuntu, zsh, Neovim, Claude Code и мои dotfiles. Защищает хост от агента.
 
 ## Запуск
 
 Из корня проекта:
 
 ```sh
-docker compose -p "${PWD##*/}" -f 'https://github.com/gelerum/devenv.git#main:compose.base.yaml' up -d
-docker compose -p "${PWD##*/}" -f 'https://github.com/gelerum/devenv.git#main:compose.base.yaml' exec dev zsh
+podman compose -p "${PWD##*/}" -f 'https://github.com/gelerum/devenv.git#main:compose.base.yaml' up -d
+podman compose -p "${PWD##*/}" -f 'https://github.com/gelerum/devenv.git#main:compose.base.yaml' exec dev zsh
 ```
 
 Проект монтируется по тому же пути, что и на хосте. На сервере с видеокартой добавьте второй файл: `-f 'https://github.com/gelerum/devenv.git#main:compose.gpu.yaml'`. Остановить: `... down`.
 
-Нужен `~/.config/devenv/claude.env` с ключом для Claude Code.
+Нужно:
+
+- `~/.config/devenv/claude.env` с ключом для Claude Code;
+- `systemctl --user enable --now podman.socket` - `podman compose` работает через docker-compose v2 и этот сокет.
 
 ## Агент в отдельном worktree
 
 ```sh
 git worktree add ../myproj.agent/fix-login
-TASK=fix-login docker compose -f 'https://github.com/gelerum/devenv.git#main:compose.task.yaml' up -d
+TASK=fix-login podman compose -f 'https://github.com/gelerum/devenv.git#main:compose.task.yaml' up -d
 ```
 
 ## Языки
