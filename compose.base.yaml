@@ -10,8 +10,6 @@ services:
       - ${PWD}:${PWD}:z
 
 volumes:
-  claude-projects:
-    name: claude-projects
   devenv-cache:
     name: devenv-cache
   devenv-mason:

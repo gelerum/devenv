@@ -152,7 +152,7 @@ RUN mkdir -p ~/.claude/projects ~/.local/share/nvim \
  && chmod +x /tmp/claude \
  && /tmp/claude install "$CLAUDE_CODE_VERSION" \
  && rm /tmp/claude \
- && echo '{"hasCompletedOnboarding": true, "theme": "auto", "projects": {"/work": {"hasTrustDialogAccepted": true}}}' > ~/.claude.json
+ && echo '{"hasCompletedOnboarding": true, "theme": "auto", "projects": {"/home/q/work": {"hasTrustDialogAccepted": true}}}' > ~/.claude.json
 
 # Отдельный слой: пересобирается, только когда меняется папка nvim в dotfiles
 USER root
@@ -174,17 +174,16 @@ ARG DOTFILES_REPO DOTFILES_REF
 RUN git init -q /opt/dotfiles \
  && git -C /opt/dotfiles fetch -q --depth 1 "$DOTFILES_REPO" "$DOTFILES_REF" \
  && git -C /opt/dotfiles checkout -q FETCH_HEAD \
- && chown -R q:q /opt/dotfiles \
- && install -d -o q -g q /work
+ && chown -R q:q /opt/dotfiles
 
 # ~/.config заранее, иначе stow заменит его целиком одной ссылкой
 USER q
 ARG DOTFILES_PACKAGES="zsh git starship claude terminfo bat"
-RUN mkdir -p ~/.config \
+RUN mkdir -p ~/.config ~/work \
  && cd /opt/dotfiles && stow -t ~ $DOTFILES_PACKAGES \
  && bat cache --build
 
 LABEL devenv.dotfiles.ref=$DOTFILES_REF devenv.nvim.ref=$NVIM_REF
 
-WORKDIR /work
+WORKDIR /home/q/work
 CMD ["sleep", "infinity"]

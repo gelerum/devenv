@@ -11,7 +11,7 @@ docker compose -p "${PWD##*/}" -f 'https://github.com/gelerum/devenv.git#main:co
 docker compose -p "${PWD##*/}" -f 'https://github.com/gelerum/devenv.git#main:compose.base.yaml' exec dev zsh
 ```
 
-Проект монтируется по тому же пути, что и на хосте. Остановить: `... down`.
+Проект монтируется по тому же пути, что и на хосте. На сервере с видеокартой добавьте второй файл: `-f 'https://github.com/gelerum/devenv.git#main:compose.gpu.yaml'`. Остановить: `... down`.
 
 Нужен `~/.config/devenv/claude.env` с ключом для Claude Code.
 
@@ -37,9 +37,10 @@ LSP и форматтеры mason ставит при первом запуск�
 
 ## Тома
 
+История и память Claude Code - в `~/.claude/projects` на хосте (синхронизируется Syncthing).
+
 Общие для всех проектов:
 
-- `claude-projects` - история и память Claude Code
 - `devenv-cache` - скачанные версии языков, окружения conda, кеши пакетов
 - `devenv-mason` - LSP и форматтеры
 

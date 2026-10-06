@@ -1,0 +1,5 @@
+# Видеокарта NVIDIA через CDI. Только на сервере: подключается вторым -f
+services:
+  dev:
+    devices:
+      - nvidia.com/gpu=all

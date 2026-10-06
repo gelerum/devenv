@@ -1,7 +1,7 @@
 name: agent-${TASK:?TASK is not set}
 
 services:
-  agent:
+  dev:
     extends:
       file: compose.common.yaml
       service: common
@@ -13,8 +13,6 @@ services:
       - ${PWD}/.git/hooks:${PWD}/.git/hooks:ro,z
 
 volumes:
-  claude-projects:
-    name: claude-projects
   devenv-cache:
     name: devenv-cache
   devenv-mason:

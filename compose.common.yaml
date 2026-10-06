@@ -2,6 +2,8 @@ services:
   common:
     image: ${DEVENV_IMAGE:-ghcr.io/gelerum/devenv:latest}
     init: true
+    # uid 1000 в контейнере = вы на хосте (rootless podman)
+    userns_mode: keep-id
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     env_file:
@@ -19,6 +21,6 @@ services:
       - GIT_CONFIG_KEY_1=tag.gpgsign
       - GIT_CONFIG_VALUE_1=false
     volumes:
-      - claude-projects:/home/q/.claude/projects
+      - ${HOME}/.claude/projects:/home/q/.claude/projects:z
       - devenv-cache:/home/q/.cache/devenv
       - devenv-mason:/home/q/.local/share/nvim/mason
