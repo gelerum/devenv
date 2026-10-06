@@ -152,7 +152,7 @@ RUN mkdir -p ~/.claude/projects ~/.local/share/nvim \
  && chmod +x /tmp/claude \
  && /tmp/claude install "$CLAUDE_CODE_VERSION" \
  && rm /tmp/claude \
- && echo '{"hasCompletedOnboarding": true, "theme": "auto", "projects": {"/home/q/work": {"hasTrustDialogAccepted": true}}}' > ~/.claude.json
+ && echo '{"hasCompletedOnboarding": true, "theme": "auto"}' > ~/.claude.json
 
 # Отдельный слой: пересобирается, только когда меняется папка nvim в dotfiles
 USER root
@@ -185,5 +185,8 @@ RUN mkdir -p ~/.config ~/work \
 
 LABEL devenv.dotfiles.ref=$DOTFILES_REF devenv.nvim.ref=$NVIM_REF
 
+COPY entrypoint.sh /usr/local/bin/devenv-entrypoint
+
 WORKDIR /home/q/work
+ENTRYPOINT ["devenv-entrypoint"]
 CMD ["sleep", "infinity"]
