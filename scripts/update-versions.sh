@@ -57,6 +57,7 @@ update_tools() {
 	read -r v sha < <(github_release yorukot/superfile 'superfile-linux-v{v}-amd64.tar.gz')
 	set_arg SUPERFILE_VERSION "$v" && set_arg SUPERFILE_SHA256 "$sha"
 
+	set_arg OBSIDIAN_SKILLS_REF "$(git ls-remote https://github.com/kepano/obsidian-skills HEAD | cut -f1)"
 	set_arg FZF_TAB_REF "$(git ls-remote https://github.com/Aloxaf/fzf-tab HEAD | cut -f1)"
 	set_arg ZSH_HISTORY_SUBSTRING_SEARCH_REF "$(git ls-remote https://github.com/zsh-users/zsh-history-substring-search HEAD | cut -f1)"
 

@@ -26,6 +26,8 @@ ARG CLAUDE_CODE_VERSION=2.1.285
 ARG CLAUDE_CODE_SHA256=33dad1ec615a2e08cc78b494f05c110e49916de2c79d78ec8799ebf46b233d29
 ARG FZF_TAB_REF=24105b15714bfec37989ed5c5b6e60f572253019
 ARG ZSH_HISTORY_SUBSTRING_SEARCH_REF=a0bdb0d47dbaba31dba2db7af8c48a5d9c74049a
+# Скиллы Claude для Obsidian: коммит kepano/obsidian-skills
+ARG OBSIDIAN_SKILLS_REF=3ccff5338ea700537839b21900aa5358a0402c98
 ARG DOTFILES_REPO=https://github.com/gelerum/dotfiles
 ARG DOTFILES_REF=a6aa14dbe05afa0ad1ceaf95b1125795ea247bf2
 # Последний коммит dotfiles в папке nvim
@@ -153,6 +155,17 @@ RUN mkdir -p ~/.claude/projects ~/.local/share/nvim \
  && /tmp/claude install "$CLAUDE_CODE_VERSION" \
  && rm /tmp/claude \
  && echo '{"hasCompletedOnboarding": true, "theme": "auto"}' > ~/.claude.json
+
+# Только три скилла из плагина obsidian, без остальных
+ARG OBSIDIAN_SKILLS_REF
+RUN git init -q /tmp/obsidian-skills \
+ && cd /tmp/obsidian-skills \
+ && git sparse-checkout set skills/obsidian-markdown skills/json-canvas skills/obsidian-bases \
+ && git fetch -q --depth 1 --filter=blob:none https://github.com/kepano/obsidian-skills "$OBSIDIAN_SKILLS_REF" \
+ && git checkout -q FETCH_HEAD \
+ && mkdir -p ~/.claude/skills \
+ && cp -r skills/. ~/.claude/skills/ \
+ && rm -rf /tmp/obsidian-skills
 
 # Отдельный слой: пересобирается, только когда меняется папка nvim в dotfiles
 USER root
