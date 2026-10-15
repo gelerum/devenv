@@ -211,6 +211,9 @@ RUN mkdir -p ~/.config \
 
 LABEL devenv.dotfiles.ref=$DOTFILES_REF devenv.nvim.ref=$NVIM_REF
 
+# Без телеметрии, история Claude Code хранится 200 лет. Managed settings, чтобы
+# не конфликтовать с ~/.claude/settings.json из dotfiles
+COPY managed-settings.json /etc/claude-code/managed-settings.json
 COPY entrypoint.sh /usr/local/bin/devenv-entrypoint
 
 WORKDIR /home/q
