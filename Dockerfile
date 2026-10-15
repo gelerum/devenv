@@ -31,9 +31,9 @@ ARG ZSH_HISTORY_SUBSTRING_SEARCH_REF=a0bdb0d47dbaba31dba2db7af8c48a5d9c74049a
 # Скиллы Claude для Obsidian: коммит kepano/obsidian-skills
 ARG OBSIDIAN_SKILLS_REF=3ccff5338ea700537839b21900aa5358a0402c98
 ARG DOTFILES_REPO=https://github.com/gelerum/dotfiles
-ARG DOTFILES_REF=2855072a2000e845812cf2ab8d9394fbaf9fe74c
+ARG DOTFILES_REF=5d7f6ac75cec6d3da5eae7ad8987e3c3971c08f3
 # Последний коммит dotfiles в папке nvim
-ARG NVIM_REF=2855072a2000e845812cf2ab8d9394fbaf9fe74c
+ARG NVIM_REF=5d7f6ac75cec6d3da5eae7ad8987e3c3971c08f3
 
 FROM ubuntu:${UBUNTU_VERSION}@${UBUNTU_DIGEST}
 ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8 IN_CONTAINER=1
