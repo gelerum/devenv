@@ -205,7 +205,7 @@ RUN git init -q /opt/dotfiles \
 # ~/.config заранее, иначе stow заменит его целиком одной ссылкой
 USER q
 ARG DOTFILES_PACKAGES="zsh git starship claude terminfo bat"
-RUN mkdir -p ~/.config ~/work \
+RUN mkdir -p ~/.config \
  && cd /opt/dotfiles && stow -t ~ $DOTFILES_PACKAGES \
  && bat cache --build
 
@@ -213,6 +213,6 @@ LABEL devenv.dotfiles.ref=$DOTFILES_REF devenv.nvim.ref=$NVIM_REF
 
 COPY entrypoint.sh /usr/local/bin/devenv-entrypoint
 
-WORKDIR /home/q/work
+WORKDIR /home/q
 ENTRYPOINT ["devenv-entrypoint"]
 CMD ["sleep", "infinity"]
