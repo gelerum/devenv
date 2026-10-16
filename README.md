@@ -4,7 +4,25 @@
 
 ## Запуск
 
-Из корня проекта:
+Через [just](https://github.com/casey/just) из любой папки проекта. Один раз, из клона этого репо (симлинк не подойдёт, нужен именно import):
+
+```sh
+echo "import '$PWD/justfile'" > ~/.justfile      # compose-файлы из клона, с локальными правками
+echo "import '$PWD/remote.just'" > ~/.justfile   # или из main на GitHub
+```
+
+| Команда                 | Что делает                                                        |
+|-------------------------|-------------------------------------------------------------------|
+| `just`                  | зайти в контейнер; удаляется, когда выходит последний шелл        |
+| `just up` / `just down` | поднять в фоне / удалить                                          |
+| `just pull`             | скачать свежий образ (контейнер подхватит его при пересоздании)  |
+| `just build`            | собрать образ из `Dockerfile`                                     |
+| `just agent <task>`     | агент в worktree `<проект>.agent/<task>` на ветке `<task>`        |
+| `just agent-shell <task>` / `just agent-down <task>` | зайти к агенту / удалить его контейнер |
+
+`compose.local.yaml` в корне проекта подключается автоматически.
+
+Без just, из корня проекта:
 
 ```sh
 podman compose -p "${PWD##*/}" -f 'https://github.com/gelerum/devenv.git#main:compose.base.yaml' up -d
@@ -16,7 +34,8 @@ podman compose -p "${PWD##*/}" -f 'https://github.com/gelerum/devenv.git#main:co
 Нужно:
 
 - `~/.config/devenv/claude.env` с ключом для Claude Code;
-- `systemctl --user enable --now podman.socket` - `podman compose` работает через docker-compose v2 и этот сокет.
+- `systemctl --user enable --now podman.socket` - `podman compose` работает через docker-compose v2 и этот сокет;
+- без just - один раз создать общие тома: `podman volume create devenv-cache; podman volume create devenv-mason`.
 
 ## Агент в отдельном worktree
 

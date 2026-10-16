@@ -1,37 +1,59 @@
 # Контейнер devenv для проекта, из которого запущен just: https://github.com/gelerum/devenv
-# Ставится один раз: ln -s ~/work/devenv/justfile ~/.justfile
+# compose-файлы - из этой папки, со всеми локальными правками. Из main на GitHub - remote.just
+# Ставится один раз (именно import, симлинк не подойдёт):
+#   echo "import '$PWD/justfile'" > ~/.justfile
 
-devenv := "https://github.com/gelerum/devenv.git#main:"
+set quiet
+# Без ">>>> Executing external compose provider" от podman
+export PODMAN_COMPOSE_WARNING_LOGS := "false"
+
+repo := source_directory()
+# Откуда брать compose-файлы; remote.just подменяет на GitHub
+src := repo + "/"
 # Проект - корень git-репозитория или текущая папка
 root := shell('git -C "$1" rev-parse --show-toplevel 2>/dev/null || echo "$1"', invocation_directory())
-project := lowercase(file_name(root))
+# compose принимает в имени проекта только [a-z0-9_-]
+project := replace_regex(replace_regex(lowercase(file_name(root)), '[^a-z0-9_-]', ''), '^[_-]+', '')
+container := project + "-dev-1"
 local := if path_exists(root / "compose.local.yaml") == "true" { "-f compose.local.yaml" } else { "" }
-gpu := if path_exists("/dev/nvidiactl") == "true" { "-f '" + devenv + "compose.gpu.yaml'" } else { "" }
-compose := "cd '" + root + "' && podman compose -p " + project + " -f '" + devenv + "compose.base.yaml' " + local + " " + gpu
+gpu := if path_exists("/dev/nvidiactl") == "true" { "-f '" + src + "compose.gpu.yaml'" } else { "" }
+# Без --progress quiet: прогресс скачивания образа
+compose_loud := "cd '" + root + "' && podman compose -p " + project + " -f '" + src + "compose.base.yaml' " + local + " " + gpu
+compose := replace(compose_loud, "podman compose", "podman compose --progress quiet")
 worktrees := root + ".agent"
-agent := "podman compose -f '" + devenv + "compose.task.yaml' " + local + " " + gpu
+agent := "podman compose --progress quiet -f '" + src + "compose.task.yaml' " + local + " " + gpu
+# Общие тома external: создаём сами, чтобы compose не приписывал их первому проекту
+volumes := "for v in devenv-cache devenv-mason; do podman volume exists $v || podman volume create $v >/dev/null; done"
 
-# Зайти в контейнер (поднимет, если не запущен)
-default: up
-    {{compose}} exec dev zsh
+# compose только для создания: каждый его вызов ~1с
+# Зайти в контейнер (поднимет, если не запущен); удаляется, когда выходит последний шелл
+default:
+    [ "$(podman inspect -f '{{{{.State.Running}}' {{container}} 2>/dev/null)" = true ] || { {{volumes}}; {{compose}} up -d -y; }
+    -podman exec -it {{container}} zsh
+    [ "$(podman inspect -f '{{{{len .ExecIDs}}' {{container}})" != 0 ] || podman rm -f {{container}} >/dev/null
 
 up:
+    {{volumes}}
     {{compose}} up -d -y
 
 down:
     {{compose}} down
 
 pull:
-    {{compose}} pull
-    {{compose}} up -d -y
+    {{compose_loud}} pull
+
+# Собрать образ из Dockerfile (локально тег тот же, что у образа из CI)
+build:
+    {{compose_loud}} build
 
 # Агент в worktree <проект>.agent/<task> на ветке <task>
 agent task:
-    cd '{{root}}' && { [ -d {{worktrees}}/{{task}} ] || git worktree add {{worktrees}}/{{task}} {{task}} 2>/dev/null || git worktree add -b {{task}} {{worktrees}}/{{task}}; }
-    cd '{{root}}' && TASK={{task}} {{agent}} -p agent-{{project}}-{{task}} up -d -y
+    cd '{{root}}' && { [ -d '{{worktrees}}/{{task}}' ] || git worktree add '{{worktrees}}/{{task}}' '{{task}}' 2>/dev/null || git worktree add -b '{{task}}' '{{worktrees}}/{{task}}'; }
+    {{volumes}}
+    cd '{{root}}' && TASK='{{task}}' {{agent}} -p '{{replace_regex('agent-' + project + '-' + lowercase(task), '[^a-z0-9_-]', '-')}}' up -d -y
 
 agent-shell task:
-    cd '{{root}}' && TASK={{task}} {{agent}} -p agent-{{project}}-{{task}} exec dev zsh
+    podman exec -it '{{replace_regex('agent-' + project + '-' + lowercase(task), '[^a-z0-9_-]', '-')}}-dev-1' zsh
 
 agent-down task:
-    cd '{{root}}' && TASK={{task}} {{agent}} -p agent-{{project}}-{{task}} down
+    cd '{{root}}' && TASK='{{task}}' {{agent}} -p '{{replace_regex('agent-' + project + '-' + lowercase(task), '[^a-z0-9_-]', '-')}}' down

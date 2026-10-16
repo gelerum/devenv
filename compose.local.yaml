@@ -1,0 +1,5 @@
+
+services:
+  dev:
+    volumes:
+      - /home/q/2_Code/dotfiles/:/home/q/2_Code/dotfiles:z

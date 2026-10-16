@@ -12,5 +12,7 @@ services:
 volumes:
   devenv-cache:
     name: devenv-cache
+    external: true
   devenv-mason:
     name: devenv-mason
+    external: true
