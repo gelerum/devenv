@@ -192,7 +192,8 @@ ARG UID=1000
 ARG GID=1000
 RUN userdel -r ubuntu \
  && groupadd -g "$GID" q \
- && useradd -m -u "$UID" -g q -s /usr/bin/zsh q
+ && useradd -m -u "$UID" -g q -s /usr/bin/zsh q \
+ && install -d -o q -g q /opt/node_modules
 
 # Nix без демона, от q. store и var/nix заранее, иначе nix уходит в chroot-хранилище
 # в ~/.local/share/nix, а chroot в контейнере запрещён
@@ -250,10 +251,16 @@ RUN mkdir -p ~/.config \
  && cd /opt/dotfiles && stow -t ~ $DOTFILES_PACKAGES \
  && bat cache --build
 
-# Зависимости локальных расширений pi (anthropic-oauth). Кеш bun - не в слой образа
-RUN cd ~/.pi/agent/extensions \
+# Зависимости локальных расширений pi (anthropic-oauth). В /opt/node_modules, а не
+# рядом с расширениями: compose.local монтирует dotfiles поверх /opt/dotfiles и
+# спрятал бы их. Модули ищутся вверх по пути, так что /opt/node_modules находится.
+# Кеш bun - не в слой образа
+RUN mkdir /tmp/pi-ext \
+ && cp ~/.pi/agent/extensions/package.json /tmp/pi-ext/ \
+ && cd /tmp/pi-ext \
  && BUN_INSTALL_CACHE_DIR=/tmp/bun-cache bun install --production \
- && rm -rf /tmp/bun-cache
+ && cp -a node_modules/. /opt/node_modules/ \
+ && rm -rf /tmp/pi-ext /tmp/bun-cache
 
 ARG DOTFILES_REF
 LABEL devenv.dotfiles.ref=$DOTFILES_REF
