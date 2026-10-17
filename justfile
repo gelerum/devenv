@@ -21,10 +21,11 @@ gpu := if path_exists("/dev/nvidiactl") == "true" { "-f '" + src + "compose.gpu.
 compose_loud := "cd '" + root + "' && podman compose -p " + project + " -f '" + src + "compose.base.yaml' " + local + " " + gpu
 compose := replace(compose_loud, "podman compose", "podman compose --progress quiet")
 worktrees := root + ".agent"
+dotfiles := env("DEVENV_DOTFILES", parent_directory(repo) / "dotfiles")
 agent := "podman compose --progress quiet -f '" + src + "compose.task.yaml' " + local + " " + gpu
 # Общие тома external: создаём сами, чтобы compose не приписывал их первому проекту.
 # Сессии, память и auth.json pi - тоже: podman не монтирует несуществующую папку, а на месте файла создаёт папку
-volumes := "mkdir -p ~/.pi/agent/sessions ~/.pi/agent/memory ~/.local/share/devenv/nix; [ -e ~/.pi/agent/auth.json ] || (umask 077; echo '{}' > ~/.pi/agent/auth.json); for v in devenv-cache devenv-mason; do podman volume exists $v || podman volume create $v >/dev/null; done"
+volumes := "mkdir -p ~/.claude/projects ~/.pi/agent/sessions ~/.pi/agent/memory ~/.local/share/devenv/nix; [ -e ~/.pi/agent/auth.json ] || (umask 077; echo '{}' > ~/.pi/agent/auth.json); for v in devenv-cache devenv-mason; do podman volume exists $v || podman volume create $v >/dev/null; done"
 
 # compose только для создания: каждый его вызов ~1с
 # Зайти в контейнер (поднимет, если не запущен); удаляется, когда выходит последний шелл
@@ -45,9 +46,10 @@ down:
 pull:
     {{compose_loud}} pull
 
-# Собрать образ из Dockerfile (локально тег тот же, что у образа из CI)
+# Собрать образ из Dockerfile (тег тот же, что у образа из CI). dotfiles - из соседней
+# папки ../dotfiles или DEVENV_DOTFILES как есть, с незакоммиченными правками; нет папки - с GitHub
 build:
-    {{compose_loud}} build
+    podman build -t "${DEVENV_IMAGE:-ghcr.io/gelerum/devenv:latest}" {{ if path_exists(dotfiles) == "true" { "--build-context dotfiles='" + dotfiles + "' --label devenv.dotfiles.ref=local" } else { "" } }} '{{repo}}'
 
 # Агент в worktree <проект>.agent/<task> на ветке <task>
 agent task:

@@ -38,8 +38,21 @@ ARG ZSH_HISTORY_SUBSTRING_SEARCH_REF=a0bdb0d47dbaba31dba2db7af8c48a5d9c74049a
 ARG OBSIDIAN_SKILLS_REF=3ccff5338ea700537839b21900aa5358a0402c98
 ARG DOTFILES_REPO=https://github.com/gelerum/dotfiles
 ARG DOTFILES_REF=0f4550dcbcfacd0a2db449d7029473a26317121f
-# Последний коммит dotfiles в папке nvim
-ARG NVIM_REF=70ba5c42e36b1550a35f6e07af32cb2fe789a341
+
+# dotfiles на зафиксированном коммите. Локальная сборка подменяет стадию dotfiles
+# своей папкой: --build-context dotfiles=<путь> (just build), тогда клон не нужен
+FROM ubuntu:${UBUNTU_VERSION}@${UBUNTU_DIGEST} AS dotfiles-git
+ARG APT_SNAPSHOT DOTFILES_REPO DOTFILES_REF
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates \
+ && apt-get update -o APT::Update::Error-Mode=any --snapshot "$APT_SNAPSHOT" \
+ && apt-get install -y --no-install-recommends --snapshot "$APT_SNAPSHOT" git \
+ && git init -q /dotfiles \
+ && git -C /dotfiles fetch -q --depth 1 "$DOTFILES_REPO" "$DOTFILES_REF" \
+ && git -C /dotfiles checkout -q FETCH_HEAD
+
+FROM scratch AS dotfiles
+COPY --from=dotfiles-git /dotfiles /
 
 FROM ubuntu:${UBUNTU_VERSION}@${UBUNTU_DIGEST}
 ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8 IN_CONTAINER=1
@@ -224,29 +237,14 @@ RUN git init -q /tmp/obsidian-skills \
  && rm -rf /tmp/obsidian-skills
 
 # Отдельный слой: пересобирается, только когда меняется папка nvim в dotfiles
-USER root
-ARG DOTFILES_REPO NVIM_REF
-RUN git init -q /opt/nvim-config \
- && cd /opt/nvim-config \
- && git sparse-checkout set nvim \
- && git fetch -q --depth 1 --filter=blob:none "$DOTFILES_REPO" "$NVIM_REF" \
- && git checkout -q FETCH_HEAD \
- && chown -R q:q /opt/nvim-config
-
-USER q
+COPY --from=dotfiles --chown=q:q nvim /opt/nvim-config/nvim
 RUN mkdir -p ~/.config \
  && stow -d /opt/nvim-config -t ~ nvim \
  && nvim --headless "+Lazy! restore" +qa
 
-USER root
-ARG DOTFILES_REPO DOTFILES_REF
-RUN git init -q /opt/dotfiles \
- && git -C /opt/dotfiles fetch -q --depth 1 "$DOTFILES_REPO" "$DOTFILES_REF" \
- && git -C /opt/dotfiles checkout -q FETCH_HEAD \
- && chown -R q:q /opt/dotfiles
+COPY --from=dotfiles --chown=q:q . /opt/dotfiles
 
 # ~/.config заранее, иначе stow заменит его целиком одной ссылкой
-USER q
 ARG DOTFILES_PACKAGES="zsh git starship claude pi terminfo bat"
 RUN mkdir -p ~/.config \
  && cd /opt/dotfiles && stow -t ~ $DOTFILES_PACKAGES \
@@ -257,7 +255,8 @@ RUN cd ~/.pi/agent/extensions \
  && BUN_INSTALL_CACHE_DIR=/tmp/bun-cache bun install --production \
  && rm -rf /tmp/bun-cache
 
-LABEL devenv.dotfiles.ref=$DOTFILES_REF devenv.nvim.ref=$NVIM_REF
+ARG DOTFILES_REF
+LABEL devenv.dotfiles.ref=$DOTFILES_REF
 
 # Без телеметрии, история Claude Code хранится 200 лет. Managed settings, чтобы
 # не конфликтовать с ~/.claude/settings.json из dotfiles

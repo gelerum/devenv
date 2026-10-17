@@ -7,7 +7,8 @@ services:
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     env_file:
-      - ${HOME}/.config/devenv/claude.env
+      - path: ${HOME}/.config/devenv/claude.env
+        required: false
     environment:
       - TERM
       - COLORTERM

@@ -23,7 +23,6 @@ update_dotfiles() {
 	dir=$(mktemp -d)
 	git clone -q --filter=blob:none --no-checkout "$(arg DOTFILES_REPO)" "$dir"
 	set_arg DOTFILES_REF "$(git -C "$dir" rev-parse HEAD)"
-	set_arg NVIM_REF "$(git -C "$dir" log -1 --format=%H HEAD -- nvim)"
 	rm -rf "$dir"
 }
 

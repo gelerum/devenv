@@ -16,7 +16,7 @@ echo "import '$PWD/remote.just'" > ~/.justfile   # или из main на GitHub
 | `just`                  | зайти в контейнер; удаляется, когда выходит последний шелл        |
 | `just up` / `just down` | поднять в фоне / удалить                                          |
 | `just pull`             | скачать свежий образ (контейнер подхватит его при пересоздании)  |
-| `just build`            | собрать образ из `Dockerfile`                                     |
+| `just build`            | собрать образ из `Dockerfile` с локальными dotfiles (см. ниже)   |
 | `just agent <task>`     | агент в worktree `<проект>.agent/<task>` на ветке `<task>`        |
 | `just agent-shell <task>` / `just agent-down <task>` | зайти к агенту / удалить его контейнер |
 
@@ -33,9 +33,13 @@ podman compose -p "${PWD##*/}" -f 'https://github.com/gelerum/devenv.git#main:co
 
 Нужно:
 
-- `~/.config/devenv/claude.env` с ключом для Claude Code;
+- `~/.config/devenv/claude.env` с ключом для Claude Code (необязательно, можно войти в контейнере);
 - `systemctl --user enable --now podman.socket` - `podman compose` работает через docker-compose v2 и этот сокет;
-- без just - один раз создать общие тома и файлы для pi: `podman volume create devenv-cache; podman volume create devenv-mason; mkdir -p ~/.pi/agent/sessions ~/.pi/agent/memory ~/.local/share/devenv/nix; echo '{}' > ~/.pi/agent/auth.json; chmod 600 ~/.pi/agent/auth.json`.
+- без just - один раз создать общие тома и файлы для pi: `podman volume create devenv-cache; podman volume create devenv-mason; mkdir -p ~/.claude/projects ~/.pi/agent/sessions ~/.pi/agent/memory ~/.local/share/devenv/nix; echo '{}' > ~/.pi/agent/auth.json; chmod 600 ~/.pi/agent/auth.json`.
+
+## Свой образ
+
+`just build` собирает образ под тем же тегом, что у образа из CI, и `just` дальше использует его (`just pull` вернёт образ из CI). dotfiles берутся из `../dotfiles` рядом с этим репо или из `DEVENV_DOTFILES` - как есть, с незакоммиченными правками, без доступа к GitHub-репо dotfiles. Если папки нет, они клонируются на коммите `DOTFILES_REF`. Остальное (Ubuntu, бинарники) всё равно скачивается из сети.
 
 ## Агент в отдельном worktree
 
