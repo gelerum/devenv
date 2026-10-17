@@ -13,7 +13,7 @@ github_release() {
 	local repo=$1 asset=$2 json v
 	json=$(curl -fsSL ${GITHUB_TOKEN:+-H "Authorization: Bearer $GITHUB_TOKEN"} \
 		"https://api.github.com/repos/$repo/releases/latest")
-	v=$(jq -r '.tag_name | ltrimstr("v")' <<<"$json")
+	v=$(jq -r '.tag_name | ltrimstr("bun-") | ltrimstr("v")' <<<"$json")
 	asset=${asset//\{v\}/$v}
 	echo "$v" "$(jq -r --arg a "$asset" '.assets[] | select(.name == $a) | .digest | ltrimstr("sha256:")' <<<"$json")"
 }
@@ -64,11 +64,21 @@ update_tools() {
 	set_arg FZF_TAB_REF "$(git ls-remote https://github.com/Aloxaf/fzf-tab HEAD | cut -f1)"
 	set_arg ZSH_HISTORY_SUBSTRING_SEARCH_REF "$(git ls-remote https://github.com/zsh-users/zsh-history-substring-search HEAD | cut -f1)"
 
+	read -r v sha < <(github_release earendil-works/pi pi-linux-x64.tar.gz)
+	set_arg PI_VERSION "$v" && set_arg PI_SHA256 "$sha"
+
+	read -r v sha < <(github_release oven-sh/bun bun-linux-x64.zip)
+	set_arg BUN_VERSION "$v" && set_arg BUN_SHA256 "$sha"
+
 	read -r v sha < <(github_release astral-sh/uv uv-x86_64-unknown-linux-gnu.tar.gz)
 	set_arg UV_VERSION "$v" && set_arg UV_SHA256 "$sha"
 
 	read -r v sha < <(github_release conda-forge/miniforge 'Miniforge3-{v}-Linux-x86_64.sh')
 	set_arg MINIFORGE_VERSION "$v" && set_arg MINIFORGE_SHA256 "$sha"
+
+	v=$(curl -fsSL https://nixos.org/nix/install | sed -n 's|.*releases.nixos.org/nix/nix-\([0-9.]*\)/.*|\1|p')
+	set_arg NIX_VERSION "$v"
+	set_arg NIX_SHA256 "$(curl -fsSL "https://releases.nixos.org/nix/nix-$v/nix-$v-x86_64-linux.tar.xz.sha256")"
 
 	v=$(curl -fsSL https://static.rust-lang.org/rustup/release-stable.toml | sed -n "s/^version = '\(.*\)'/\1/p")
 	set_arg RUSTUP_VERSION "$v"

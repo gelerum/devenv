@@ -22,5 +22,10 @@ services:
       - GIT_CONFIG_VALUE_1=false
     volumes:
       - ${HOME}/.claude/projects:/home/q/.claude/projects:z
+      - ${HOME}/.pi/agent/sessions:/home/q/.pi/agent/sessions:z
+      - ${HOME}/.pi/agent/auth.json:/home/q/.pi/agent/auth.json:z
+      - ${HOME}/.pi/agent/memory:/home/q/.pi/agent/memory:z
       - devenv-cache:/home/q/.cache/devenv
       - devenv-mason:/home/q/.local/share/nvim/mason
+      # Папка, а не том: так store видно на хосте. Отдельно от /nix хоста
+      - ${HOME}/.local/share/devenv/nix:/nix:z

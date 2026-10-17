@@ -1,6 +1,6 @@
 # devenv
 
-Окружение для разработки в rootless podman: Ubuntu, zsh, Neovim, Claude Code и мои dotfiles. Защищает хост от агента.
+Окружение для разработки в rootless podman: Ubuntu, zsh, Neovim, Claude Code, pi и мои dotfiles. Защищает хост от агента.
 
 ## Запуск
 
@@ -35,7 +35,7 @@ podman compose -p "${PWD##*/}" -f 'https://github.com/gelerum/devenv.git#main:co
 
 - `~/.config/devenv/claude.env` с ключом для Claude Code;
 - `systemctl --user enable --now podman.socket` - `podman compose` работает через docker-compose v2 и этот сокет;
-- без just - один раз создать общие тома: `podman volume create devenv-cache; podman volume create devenv-mason`.
+- без just - один раз создать общие тома и файлы для pi: `podman volume create devenv-cache; podman volume create devenv-mason; mkdir -p ~/.pi/agent/sessions ~/.pi/agent/memory ~/.local/share/devenv/nix; echo '{}' > ~/.pi/agent/auth.json; chmod 600 ~/.pi/agent/auth.json`.
 
 ## Агент в отдельном worktree
 
@@ -54,17 +54,19 @@ TASK=fix-login podman compose -f 'https://github.com/gelerum/devenv.git#main:com
 | Rust   | `rust-toolchain.toml`                 | `cargo ...`                    |
 | Python | `.python-version`, `pyproject.toml`   | `uv sync`, `uv run ...`        |
 | conda  | `environment.yml`                     | `conda env create -f environment.yml` |
+| Nix    | `flake.nix`                           | `nix develop`                  |
 
 LSP и форматтеры mason ставит при первом запуске `nvim`. `DEVENV_LANGS="go python"` - только для этих языков.
 
 ## Тома
 
-История и память Claude Code - в `~/.claude/projects` на хосте (синхронизируется Syncthing).
+История и память Claude Code - в `~/.claude/projects` на хосте (синхронизируется Syncthing), сессии, память и логины pi - в `~/.pi/agent/sessions`, `~/.pi/agent/memory` и `~/.pi/agent/auth.json`.
 
 Общие для всех проектов:
 
 - `devenv-cache` - скачанные версии языков, окружения conda, кеши пакетов
 - `devenv-mason` - LSP и форматтеры
+- `~/.local/share/devenv/nix` - `/nix` контейнера, отдельный от `/nix` хоста. Почистить: `nix-collect-garbage -d` в контейнере
 
 ## Обновления
 

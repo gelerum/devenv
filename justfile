@@ -22,11 +22,14 @@ compose_loud := "cd '" + root + "' && podman compose -p " + project + " -f '" + 
 compose := replace(compose_loud, "podman compose", "podman compose --progress quiet")
 worktrees := root + ".agent"
 agent := "podman compose --progress quiet -f '" + src + "compose.task.yaml' " + local + " " + gpu
-# Общие тома external: создаём сами, чтобы compose не приписывал их первому проекту
-volumes := "for v in devenv-cache devenv-mason; do podman volume exists $v || podman volume create $v >/dev/null; done"
+# Общие тома external: создаём сами, чтобы compose не приписывал их первому проекту.
+# Сессии, память и auth.json pi - тоже: podman не монтирует несуществующую папку, а на месте файла создаёт папку
+volumes := "mkdir -p ~/.pi/agent/sessions ~/.pi/agent/memory ~/.local/share/devenv/nix; [ -e ~/.pi/agent/auth.json ] || (umask 077; echo '{}' > ~/.pi/agent/auth.json); for v in devenv-cache devenv-mason; do podman volume exists $v || podman volume create $v >/dev/null; done"
 
 # compose только для создания: каждый его вызов ~1с
 # Зайти в контейнер (поднимет, если не запущен); удаляется, когда выходит последний шелл
+# [default]: без него just через import не считает рецепт рецептом по умолчанию
+[default]
 default:
     [ "$(podman inspect -f '{{{{.State.Running}}' {{container}} 2>/dev/null)" = true ] || { {{volumes}}; {{compose}} up -d -y; }
     -podman exec -it {{container}} zsh

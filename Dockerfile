@@ -12,6 +12,8 @@ ARG UV_VERSION=0.13.0
 ARG UV_SHA256=1468ebd5a5541121837c5a2817b9972ba6090fa6caa3d142620850a47fb75154
 ARG MINIFORGE_VERSION=26.7.2-0
 ARG MINIFORGE_SHA256=281b0ac7d550802efc81af633225a5e6116d29ae72f3ab4eae7168c3931a4c05
+ARG NIX_VERSION=2.35.3
+ARG NIX_SHA256=6ce3ce3703fdc241b560cba401c5d338042122fe5b1a81e07bf1a623f259eba0
 ARG RUSTUP_VERSION=1.29.1
 ARG RUSTUP_SHA256=dda7234360b7f578ca8b0ddcb80145646fa61a67c1720a5abc7051b35c9fcb71
 ARG STARSHIP_VERSION=1.26.0
@@ -26,12 +28,16 @@ ARG LIBTEXPRINTF_VERSION=1.31
 ARG LIBTEXPRINTF_SHA256=8ca5a11d387631a34979295f73f9a2eccc87e17c690dcd4c1454eb65a9e372bc
 ARG CLAUDE_CODE_VERSION=2.1.287
 ARG CLAUDE_CODE_SHA256=3920489a5109cff5786a1a392c25277408ff22bc796d5edb9c16a60e5a1718f0
+ARG PI_VERSION=1.3.0
+ARG PI_SHA256=24f5be328b66d4da36876296989501974f43ab8434fbb57c35c523a3ea505ded
+ARG BUN_VERSION=1.4.3
+ARG BUN_SHA256=3e730528d89775f03f87f05c06787c4df4099d0a37f3f252e7b829cb23816e18
 ARG FZF_TAB_REF=24105b15714bfec37989ed5c5b6e60f572253019
 ARG ZSH_HISTORY_SUBSTRING_SEARCH_REF=a0bdb0d47dbaba31dba2db7af8c48a5d9c74049a
 # Скиллы Claude для Obsidian: коммит kepano/obsidian-skills
 ARG OBSIDIAN_SKILLS_REF=3ccff5338ea700537839b21900aa5358a0402c98
 ARG DOTFILES_REPO=https://github.com/gelerum/dotfiles
-ARG DOTFILES_REF=70ba5c42e36b1550a35f6e07af32cb2fe789a341
+ARG DOTFILES_REF=5ad7d2500feeabeed09488aa1b5b115e8d7301f0
 # Последний коммит dotfiles в папке nvim
 ARG NVIM_REF=70ba5c42e36b1550a35f6e07af32cb2fe789a341
 
@@ -46,9 +52,9 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends --snapshot "$APT_SNAPSHOT" \
       ca-certificates curl git less unzip build-essential \
       zsh zsh-autosuggestions zsh-syntax-highlighting direnv \
-      stow ripgrep fd-find eza \
+      stow ripgrep fd-find eza poppler-utils shellcheck \
       pkg-config libssl-dev libffi-dev zlib1g-dev libsqlite3-dev \
-      nodejs npm python3 python3-venv \
+      nodejs npm python3 python3-venv xz-utils \
  && rm -rf /var/lib/apt/lists/* \
  && ln -s /usr/bin/fdfind /usr/local/bin/fd
 
@@ -99,6 +105,22 @@ RUN fetch "https://github.com/neovim/neovim/releases/download/v${NVIM_VERSION}/n
  && rm /tmp/nvim.tar.gz \
  && ln -s /opt/nvim/bin/nvim /usr/local/bin/nvim
 
+# pi - бинарник на Bun, Node не нужен. Рядом с ним docs, theme и wasm, поэтому распаковывается целиком
+ARG PI_VERSION PI_SHA256
+RUN fetch "https://github.com/earendil-works/pi/releases/download/v${PI_VERSION}/pi-linux-x64.tar.gz" "$PI_SHA256" /tmp/pi.tar.gz \
+ && mkdir /opt/pi \
+ && tar -xzf /tmp/pi.tar.gz -C /opt/pi --strip-components=1 \
+ && rm /tmp/pi.tar.gz \
+ && ln -s /opt/pi/pi /usr/local/bin/pi
+ENV PI_SKIP_VERSION_CHECK=1 PI_TELEMETRY=0
+
+# bun - для зависимостей и тестов своих расширений pi
+ARG BUN_VERSION BUN_SHA256
+RUN fetch "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/bun-linux-x64.zip" "$BUN_SHA256" /tmp/bun.zip \
+ && unzip -qj /tmp/bun.zip bun-linux-x64/bun -d /usr/local/bin \
+ && ln -s bun /usr/local/bin/bunx \
+ && rm /tmp/bun.zip
+
 # Менеджеры версий: нужные версии языков скачиваются по файлам проекта в ~/.cache/devenv (том)
 ARG GO_VERSION GO_SHA256
 RUN fetch "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" "$GO_SHA256" /tmp/go.tar.gz \
@@ -119,6 +141,18 @@ RUN fetch "https://github.com/conda-forge/miniforge/releases/download/${MINIFORG
  && /opt/conda/bin/conda clean -afy \
  && printf '\n# conda activate\neval "$(/opt/conda/bin/conda shell.zsh hook)"\n' >> /etc/zsh/zshrc
 
+# Nix: официальный архив - готовые пути /nix/store. Весь /nix - папка хоста
+# ~/.local/share/devenv/nix, поэтому пути лежат в /opt/nix и entrypoint копирует их туда.
+# Ссылки в /usr/local/bin ведут в /nix/store и оживают после первого старта
+ARG NIX_VERSION NIX_SHA256
+RUN fetch "https://releases.nixos.org/nix/nix-${NIX_VERSION}/nix-${NIX_VERSION}-x86_64-linux.tar.xz" "$NIX_SHA256" /tmp/nix.tar.xz \
+ && mkdir /opt/nix \
+ && tar -xJf /tmp/nix.tar.xz -C /opt/nix --strip-components=1 \
+ && rm /tmp/nix.tar.xz \
+ && nix=$(ls -d /opt/nix/store/*-nix-"$NIX_VERSION") \
+ && echo "/nix/store/${nix##*/}" > /opt/nix/nix-path \
+ && for b in "$nix"/bin/*; do ln -s "/nix/store/${nix##*/}/bin/${b##*/}" /usr/local/bin/; done
+
 # rustup-init - тот же бинарник, что rustup и cargo/rustc: роль выбирается по имени файла
 ARG RUSTUP_VERSION RUSTUP_SHA256
 RUN fetch "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/x86_64-unknown-linux-gnu/rustup-init" "$RUSTUP_SHA256" /usr/local/bin/rustup \
@@ -134,7 +168,9 @@ ENV GOPATH=/home/q/.cache/devenv/go \
     RUSTUP_HOME=/home/q/.cache/devenv/rustup \
     CARGO_HOME=/home/q/.cache/devenv/cargo \
     npm_config_cache=/home/q/.cache/devenv/npm \
+    BUN_INSTALL_CACHE_DIR=/home/q/.cache/devenv/bun \
     PIP_CACHE_DIR=/home/q/.cache/devenv/pip \
+    NIX_CACHE_HOME=/home/q/.cache/devenv/nix \
     CONDA_ENVS_PATH=/home/q/.cache/devenv/conda/envs \
     CONDA_PKGS_DIRS=/home/q/.cache/devenv/conda/pkgs
 ENV PATH=/opt/conda/condabin:/usr/local/go/bin:$GOPATH/bin:$CARGO_HOME/bin:$PATH
@@ -145,10 +181,17 @@ RUN userdel -r ubuntu \
  && groupadd -g "$GID" q \
  && useradd -m -u "$UID" -g q -s /usr/bin/zsh q
 
+# Nix без демона, от q. store и var/nix заранее, иначе nix уходит в chroot-хранилище
+# в ~/.local/share/nix, а chroot в контейнере запрещён
+RUN mkdir -p /nix/store /nix/var/nix /etc/nix \
+ && chown -R q:q /nix \
+ && printf 'build-users-group =\nexperimental-features = nix-command flakes\n' > /etc/nix/nix.conf
+
 USER q
 ENV PATH=/home/q/.local/bin:$PATH
-# Точки монтирования томов, чтобы тома принадлежали q
-RUN mkdir -p ~/.cache/devenv ~/.local/share/nvim/mason
+# Точки монтирования томов, чтобы тома принадлежали q. ~/.pi/agent заранее,
+# иначе stow сделает его ссылкой на dotfiles и pi будет писать auth.json туда
+RUN mkdir -p ~/.cache/devenv ~/.local/share/nvim/mason ~/.pi/agent/sessions ~/.pi/agent/memory
 
 # Плагины zsh, которых нет в apt
 ARG FZF_TAB_REF ZSH_HISTORY_SUBSTRING_SEARCH_REF
@@ -204,10 +247,15 @@ RUN git init -q /opt/dotfiles \
 
 # ~/.config заранее, иначе stow заменит его целиком одной ссылкой
 USER q
-ARG DOTFILES_PACKAGES="zsh git starship claude terminfo bat"
+ARG DOTFILES_PACKAGES="zsh git starship claude pi terminfo bat"
 RUN mkdir -p ~/.config \
  && cd /opt/dotfiles && stow -t ~ $DOTFILES_PACKAGES \
  && bat cache --build
+
+# Зависимости локальных расширений pi (anthropic-oauth). Кеш bun - не в слой образа
+RUN cd ~/.pi/agent/extensions \
+ && BUN_INSTALL_CACHE_DIR=/tmp/bun-cache bun install --production \
+ && rm -rf /tmp/bun-cache
 
 LABEL devenv.dotfiles.ref=$DOTFILES_REF devenv.nvim.ref=$NVIM_REF
 

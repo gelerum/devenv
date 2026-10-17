@@ -3,3 +3,5 @@ services:
   dev:
     volumes:
       - /home/q/2_Code/dotfiles/:/home/q/2_Code/dotfiles:z
+      # Ссылки stow ведут в /opt/dotfiles: правки на хосте видны сразу, без пересборки
+      - /home/q/2_Code/dotfiles/:/opt/dotfiles:z
