@@ -40,17 +40,15 @@ podman compose -p "${PWD##*/}" -f 'https://github.com/gelerum/devenv.git#main:co
   ```sh
   podman volume create devenv-cache
   podman volume create devenv-mason
-  sh scripts/init-pi-config.sh "${DEVENV_DOTFILES:-$HOME/2_Code/dotfiles}"
-  mkdir -p ~/.claude/projects ~/.local/share/devenv/nix
+  mkdir -p ~/.claude/projects ~/.pi/agent/sessions ~/.pi/agent/memory ~/.local/share/devenv/nix
+  [ -e ~/.pi/agent/auth.json ] || (umask 077; printf '{}\n' > ~/.pi/agent/auth.json)
   ```
 
-`just` сам готовит папку `~/.config/devenv/pi/` с обычными файлами `settings.json`
-и `models.json`. При первом запуске каждый файл копируется из `~/.pi/agent/`,
-если он там есть, иначе из локальных dotfiles; если нет обоих источников — создаётся
-пустой JSON. Уже существующие файлы в новой папке не перезаписываются.
-Это однократный импорт: дальнейшие изменения хостового `~/.pi/agent/settings.json`
-или dotfiles не меняют конфигурацию контейнеров. Источник настроек контейнеров —
-`~/.config/devenv/pi/`; эту папку нужно добавить в Syncthing на обоих компьютерах.
+До запуска дождитесь синхронизации `~/.config/devenv/pi/`: в ней должны быть
+обычные файлы `settings.json` и `models.json`. Это единственный источник настроек
+pi для контейнеров. `just` проверяет наличие файлов, но не создаёт и не копирует
+конфигурацию из dotfiles или хостового `~/.pi/agent/`.
+На новом компьютере подключите эту папку к Syncthing и дождитесь обоих файлов.
 
 ## Свой образ
 
@@ -113,8 +111,8 @@ CI выполните на хосте `just pull`, затем `just down` и `ju
 после внешнего изменения перечитайте конфигурацию (`/reload`, `/model`) или
 перезапустите pi. Дождитесь синхронизации перед переходом на второй компьютер;
 одновременное изменение одного конфига из нескольких pi может создать конфликт.
-Dotfiles остаются источником расширений и стартовых значений, но не рабочим
-хранилищем синхронизируемых настроек контейнеров.
+Dotfiles остаются источником расширений, тем и агентов, но не содержат рабочие
+`settings.json` и `models.json` контейнеров.
 
 На обоих компьютерах желательно иметь одинаковые абсолютные пути проектов
 (например, `/home/q/2_Code/myproject`): pi группирует сессии по рабочей папке,

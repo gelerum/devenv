@@ -5,7 +5,7 @@ if [ -d /run/pi-config ]; then
     mkdir -p "$HOME/.pi/agent" || exit 1
     for name in settings.json models.json; do
         if [ ! -f "/run/pi-config/$name" ] || [ -L "/run/pi-config/$name" ]; then
-            printf 'Нет обычного файла /run/pi-config/%s; запустите init-pi-config.sh на хосте\n' "$name" >&2
+            printf 'Нет обычного файла /run/pi-config/%s; проверьте ~/.config/devenv/pi на хосте и Syncthing\n' "$name" >&2
             exit 1
         fi
         ln -sfnT "/run/pi-config/$name" "$HOME/.pi/agent/$name" || exit 1
