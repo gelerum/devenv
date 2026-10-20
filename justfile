@@ -24,15 +24,15 @@ worktrees := root + ".agent"
 dotfiles := env("DEVENV_DOTFILES", parent_directory(repo) / "dotfiles")
 agent := "podman compose --progress quiet -f '" + src + "compose.task.yaml' " + local + " " + gpu
 # Общие тома external: создаём сами, чтобы compose не приписывал их первому проекту.
-# Сессии, память и auth.json pi - тоже: podman не монтирует несуществующую папку, а на месте файла создаёт папку
-volumes := "mkdir -p ~/.claude/projects ~/.pi/agent/sessions ~/.pi/agent/memory ~/.local/share/devenv/nix; [ -e ~/.pi/agent/auth.json ] || (umask 077; echo '{}' > ~/.pi/agent/auth.json); for v in devenv-cache devenv-mason; do podman volume exists $v || podman volume create $v >/dev/null; done"
+# Настройки один раз копируем в ~/.config/devenv/pi; затем папку синхронизирует Syncthing.
+volumes := "sh '" + repo + "/scripts/init-pi-config.sh' '" + dotfiles + "' && { mkdir -p ~/.claude/projects ~/.local/share/devenv/nix; for v in devenv-cache devenv-mason; do podman volume exists $v || podman volume create $v >/dev/null; done; }"
 
 # compose только для создания: каждый его вызов ~1с
 # Зайти в контейнер (поднимет, если не запущен); удаляется, когда выходит последний шелл
 # [default]: без него just через import не считает рецепт рецептом по умолчанию
 [default]
 default:
-    [ "$(podman inspect -f '{{{{.State.Running}}' {{container}} 2>/dev/null)" = true ] || { {{volumes}}; {{compose}} up -d -y; }
+    [ "$(podman inspect -f '{{{{.State.Running}}' {{container}} 2>/dev/null)" = true ] || { {{volumes}} && {{compose}} up -d -y; }
     -podman exec -it {{container}} zsh
     [ "$(podman inspect -f '{{{{len .ExecIDs}}' {{container}})" != 0 ] || podman rm -f {{container}} >/dev/null
 

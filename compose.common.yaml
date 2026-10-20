@@ -25,6 +25,7 @@ services:
       - ${HOME}/.claude/projects:/home/q/.claude/projects:z
       - ${HOME}/.pi/agent/sessions:/home/q/.pi/agent/sessions:z
       - ${HOME}/.pi/agent/auth.json:/home/q/.pi/agent/auth.json:z
+      - ${HOME}/.config/devenv/pi:/run/pi-config:z
       - ${HOME}/.pi/agent/memory:/home/q/.pi/agent/memory:z
       - devenv-cache:/home/q/.cache/devenv
       - devenv-mason:/home/q/.local/share/nvim/mason
