@@ -28,6 +28,8 @@ ARG LIBTEXPRINTF_VERSION=1.31
 ARG LIBTEXPRINTF_SHA256=8ca5a11d387631a34979295f73f9a2eccc87e17c690dcd4c1454eb65a9e372bc
 ARG CLAUDE_CODE_VERSION=2.1.292
 ARG CLAUDE_CODE_SHA256=a967e7b1d8b4e47ee421d5433027880347952b0c0857abf880e2c942a4ec93b3
+ARG CODEX_VERSION=0.163.0
+ARG CODEX_SHA256=beb339e8ecd9ba057a6bb2dc81ad8ca474812edfbf0fc5056ca818797648dde4
 ARG PI_VERSION=1.3.0
 ARG PI_SHA256=24f5be328b66d4da36876296989501974f43ab8434fbb57c35c523a3ea505ded
 ARG BUN_VERSION=1.4.3
@@ -118,6 +120,15 @@ RUN fetch "https://github.com/neovim/neovim/releases/download/v${NVIM_VERSION}/n
  && rm /tmp/nvim.tar.gz \
  && ln -s /opt/nvim/bin/nvim /usr/local/bin/nvim
 
+# Codex CLI - нативный бинарник, без npm; SQLite локален для устройства
+ENV CODEX_SQLITE_HOME=/home/q/.local/state/codex/sqlite
+ARG CODEX_VERSION CODEX_SHA256
+RUN fetch "https://github.com/openai/codex/releases/download/rust-v${CODEX_VERSION}/codex-x86_64-unknown-linux-musl.tar.gz" "$CODEX_SHA256" /tmp/codex.tar.gz \
+ && tar -xzf /tmp/codex.tar.gz -C /usr/local/bin codex-x86_64-unknown-linux-musl \
+ && mv /usr/local/bin/codex-x86_64-unknown-linux-musl /usr/local/bin/codex \
+ && rm /tmp/codex.tar.gz \
+ && codex --version
+
 # pi - бинарник на Bun, Node не нужен. Рядом с ним docs, theme и wasm, поэтому распаковывается целиком
 ARG PI_VERSION PI_SHA256
 RUN fetch "https://github.com/earendil-works/pi/releases/download/v${PI_VERSION}/pi-linux-x64.tar.gz" "$PI_SHA256" /tmp/pi.tar.gz \
@@ -205,7 +216,7 @@ USER q
 ENV PATH=/home/q/.local/bin:$PATH
 # Точки монтирования томов, чтобы тома принадлежали q. ~/.pi/agent заранее,
 # иначе stow сделает его ссылкой на dotfiles и pi будет писать auth.json туда
-RUN mkdir -p ~/.cache/devenv ~/.local/share/nvim/mason ~/.pi/agent/sessions ~/.pi/agent/memory
+RUN mkdir -p ~/.cache/devenv ~/.local/share/nvim/mason ~/.pi/agent/sessions ~/.pi/agent/memory ~/.codex
 
 # Плагины zsh, которых нет в apt
 ARG FZF_TAB_REF ZSH_HISTORY_SUBSTRING_SEARCH_REF
@@ -224,6 +235,7 @@ RUN mkdir -p ~/.claude/projects ~/.local/share/nvim \
  && chmod +x /tmp/claude \
  && /tmp/claude install "$CLAUDE_CODE_VERSION" \
  && rm /tmp/claude \
+ && mv ~/.local/bin/claude ~/.local/bin/claude-native \
  && echo '{"hasCompletedOnboarding": true, "theme": "auto"}' > ~/.claude.json
 
 # Только три скилла из плагина obsidian, без остальных
@@ -269,6 +281,9 @@ LABEL devenv.dotfiles.ref=$DOTFILES_REF
 # не конфликтовать с ~/.claude/settings.json из dotfiles
 COPY managed-settings.json /etc/claude-code/managed-settings.json
 COPY entrypoint.sh /usr/local/bin/devenv-entrypoint
+COPY scripts/agent_storage.py /usr/local/lib/devenv/agent_storage.py
+COPY --chmod=755 agent-launcher.sh /usr/local/bin/devenv-agent
+RUN for agent in claude codex pi; do ln -s /usr/local/bin/devenv-agent "$HOME/.local/bin/$agent"; done
 
 WORKDIR /home/q
 ENTRYPOINT ["devenv-entrypoint"]

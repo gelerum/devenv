@@ -24,8 +24,8 @@ worktrees := root + ".agent"
 dotfiles := env("DEVENV_DOTFILES", parent_directory(repo) / "dotfiles")
 agent := "podman compose --progress quiet -f '" + src + "compose.task.yaml' " + local + " " + gpu
 # Общие тома external: создаём сами, чтобы compose не приписывал их первому проекту.
-# Настройки уже лежат в синхронизируемой ~/.config/devenv/pi; не копируем и не перезаписываем.
-volumes := "for f in settings.json models.json; do [ -f ~/.config/devenv/pi/$f ] && [ ! -L ~/.config/devenv/pi/$f ] || { echo \"Нужен обычный файл ~/.config/devenv/pi/$f; дождитесь Syncthing\" >&2; exit 1; }; done; mkdir -p ~/.claude/projects ~/.pi/agent/sessions ~/.pi/agent/memory ~/.local/share/devenv/nix; [ -e ~/.pi/agent/auth.json ] || (umask 077; echo '{}' > ~/.pi/agent/auth.json); for v in devenv-cache devenv-mason; do podman volume exists $v || podman volume create $v >/dev/null; done"
+# Рабочие конфиги уже должны быть мигрированы или получены через Syncthing.
+volumes := "python3 '" + repo + "/scripts/agent_storage.py' init && for v in devenv-cache devenv-mason; do podman volume exists $v || podman volume create $v >/dev/null; done"
 
 # compose только для создания: каждый его вызов ~1с
 # Зайти в контейнер (поднимет, если не запущен); удаляется, когда выходит последний шелл
@@ -50,6 +50,17 @@ pull:
 # папки ../dotfiles или DEVENV_DOTFILES как есть, с незакоммиченными правками; нет папки - с GitHub
 build:
     podman build -t "${DEVENV_IMAGE:-ghcr.io/gelerum/devenv:latest}" {{ if path_exists(dotfiles) == "true" { "--build-context dotfiles='" + dotfiles + "' --label devenv.dotfiles.ref=local" } else { "" } }} '{{repo}}'
+
+# Явный перенос старых данных; оригиналы не удаляются, конфликты не затираются.
+migrate-agents:
+    python3 '{{repo}}/scripts/agent_storage.py' migrate --dotfiles '{{dotfiles}}'
+
+# Переход между устройствами: сначала завершить ВСЕ клиенты Codex.
+agents-snapshot:
+    python3 '{{repo}}/scripts/agent_storage.py' snapshot
+
+agents-restore:
+    python3 '{{repo}}/scripts/agent_storage.py' restore
 
 # Агент в worktree <проект>.agent/<task> на ветке <task>
 agent task:

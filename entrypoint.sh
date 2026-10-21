@@ -1,16 +1,6 @@
 #!/bin/sh
-# Папка монтируется целиком: замена JSON через Syncthing видна по тем же ссылкам.
-# Без mount сохраняем defaults из образа (обычный запуск вне Compose).
-if [ -d /run/pi-config ]; then
-    mkdir -p "$HOME/.pi/agent" || exit 1
-    for name in settings.json models.json; do
-        if [ ! -f "/run/pi-config/$name" ] || [ -L "/run/pi-config/$name" ]; then
-            printf 'Нет обычного файла /run/pi-config/%s; проверьте ~/.config/devenv/pi на хосте и Syncthing\n' "$name" >&2
-            exit 1
-        fi
-        ln -sfnT "/run/pi-config/$name" "$HOME/.pi/agent/$name" || exit 1
-    done
-fi
+# Настройки и credentials связываются выборочно; native-каталоги не перекрываются.
+python3 /usr/local/lib/devenv/agent_storage.py setup || exit 1
 
 # Claude Code спрашивает о доверии к каждой новой папке. Контейнер видит только
 # смонтированный проект, поэтому рабочая папка помечается доверенной сразу

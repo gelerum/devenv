@@ -13,7 +13,7 @@ github_release() {
 	local repo=$1 asset=$2 json v
 	json=$(curl -fsSL ${GITHUB_TOKEN:+-H "Authorization: Bearer $GITHUB_TOKEN"} \
 		"https://api.github.com/repos/$repo/releases/latest")
-	v=$(jq -r '.tag_name | ltrimstr("bun-") | ltrimstr("v")' <<<"$json")
+	v=$(jq -r '.tag_name | ltrimstr("bun-") | ltrimstr("rust-") | ltrimstr("v")' <<<"$json")
 	asset=${asset//\{v\}/$v}
 	echo "$v" "$(jq -r --arg a "$asset" '.assets[] | select(.name == $a) | .digest | ltrimstr("sha256:")' <<<"$json")"
 }
@@ -62,6 +62,9 @@ update_tools() {
 	set_arg OBSIDIAN_SKILLS_REF "$(git ls-remote https://github.com/kepano/obsidian-skills HEAD | cut -f1)"
 	set_arg FZF_TAB_REF "$(git ls-remote https://github.com/Aloxaf/fzf-tab HEAD | cut -f1)"
 	set_arg ZSH_HISTORY_SUBSTRING_SEARCH_REF "$(git ls-remote https://github.com/zsh-users/zsh-history-substring-search HEAD | cut -f1)"
+
+	read -r v sha < <(github_release openai/codex codex-x86_64-unknown-linux-musl.tar.gz)
+	set_arg CODEX_VERSION "$v" && set_arg CODEX_SHA256 "$sha"
 
 	read -r v sha < <(github_release earendil-works/pi pi-linux-x64.tar.gz)
 	set_arg PI_VERSION "$v" && set_arg PI_SHA256 "$sha"

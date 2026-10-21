@@ -1,88 +1,101 @@
-"""Run with: python3 -m unittest discover -s tests -v."""
-
+"""Run with python3 -m unittest discover -s tests -v."""
+import importlib.util
 import json
-import os
 from pathlib import Path
-import subprocess
 import tempfile
 import unittest
 
-
 ROOT = Path(__file__).resolve().parents[1]
+spec = importlib.util.spec_from_file_location('agent_storage', ROOT / 'scripts/agent_storage.py')
+storage = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(storage)
 
 
-class PiConfigTests(unittest.TestCase):
+class AgentConfigTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        self.home = self.root / "home"
+        self.home = self.root / 'home'
         self.home.mkdir()
-        self.agent = self.home / ".pi/agent"
-        self.config = self.home / ".config/devenv/pi"
+        self.mounts = self.root / 'mounts'
 
     def put(self, path, value):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(value))
 
-    def run_entrypoint_config(self, success=True):
-        # Execute only config setup, without Claude setup or Nix initialization.
-        setup = (ROOT / "entrypoint.sh").read_text().split("# Claude Code", 1)[0]
-        setup = setup.replace("/run/pi-config", str(self.config))
-        result = subprocess.run(
-            ["sh", "-c", setup],
-            env={**os.environ, "HOME": str(self.home)},
-            capture_output=True,
-            text=True,
-        )
-        self.assertEqual(result.returncode == 0, success, result.stderr)
+    def config(self, agent):
+        base = self.mounts / agent
+        for name in storage.CONFIG[agent]:
+            path = base / 'config' / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('{}' if name.endswith('.json') else '')
+        (base / 'auth').mkdir(exist_ok=True)
+        (base / 'data').mkdir(exist_ok=True)
+        return base
 
     def test_links_follow_replacement_and_write_back(self):
-        self.put(self.config / "settings.json", {"defaultModel": "synced"})
-        self.put(self.config / "models.json", {})
-        self.put(self.agent / "settings.json", {"old": True})
-        self.run_entrypoint_config()
-        settings = self.agent / "settings.json"
+        base = self.config('pi')
+        storage.setup(self.home, self.mounts)
+        settings = self.home / '.pi/agent/settings.json'
         self.assertTrue(settings.is_symlink())
-        self.assertTrue((self.agent / "models.json").is_symlink())
-        replacement = self.config / "settings.new"
-        self.put(replacement, {"defaultModel": "updated-by-syncthing"})
-        replacement.replace(self.config / "settings.json")
-        self.assertEqual(json.loads(settings.read_text())["defaultModel"], "updated-by-syncthing")
-        self.put(settings, {"defaultModel": "saved-by-pi"})
-        self.assertEqual(json.loads((self.config / "settings.json").read_text())["defaultModel"], "saved-by-pi")
-        self.run_entrypoint_config()
+        replacement = base / 'config/new.json'
+        self.put(replacement, {'defaultModel': 'synced'})
+        replacement.replace(base / 'config/settings.json')
+        self.assertEqual(json.loads(settings.read_text())['defaultModel'], 'synced')
+        self.put(settings, {'defaultModel': 'saved-by-pi'})
+        self.assertEqual(json.loads((base / 'config/settings.json').read_text())['defaultModel'],
+                         'saved-by-pi')
+        storage.setup(self.home, self.mounts)
 
     def test_replaces_image_symlink_without_changing_dotfiles(self):
-        image_default = self.root / "dotfiles/settings.json"
-        self.put(image_default, {"defaultModel": "image-default"})
-        self.agent.mkdir(parents=True)
-        (self.agent / "settings.json").symlink_to(image_default)
-        self.put(self.config / "settings.json", {"defaultModel": "synced"})
-        self.put(self.config / "models.json", {})
-        self.run_entrypoint_config()
-        self.assertEqual(json.loads(image_default.read_text())["defaultModel"], "image-default")
-        self.assertEqual(json.loads((self.agent / "settings.json").read_text())["defaultModel"], "synced")
+        self.config('claude')
+        image = self.root / 'dotfiles/settings.json'
+        self.put(image, {'image': True})
+        native = self.home / '.claude'
+        native.mkdir()
+        (native / 'settings.json').symlink_to(image)
+        storage.setup(self.home, self.mounts)
+        self.assertEqual(json.loads(image.read_text()), {'image': True})
+        self.assertEqual(json.loads((native / 'settings.json').read_text()), {})
+
+    def test_all_clients_have_selective_links(self):
+        for agent in storage.AGENTS:
+            self.config(agent)
+        storage.setup(self.home, self.mounts)
+        for agent, files in storage.FILES.items():
+            for name, target in files.items():
+                native = storage.native_home(self.home, agent) / name
+                if target.startswith('auth/'):
+                    self.assertFalse(native.is_symlink())
+                    saved = self.mounts / agent / target
+                    self.assertEqual(native.read_bytes() if native.is_file() else None,
+                                     saved.read_bytes() if saved.is_file() else None)
+                else:
+                    self.assertEqual(native.readlink(), self.mounts / agent / target)
+        # Memory MUST be a directory bind mount, never a symlink from setup.
+        self.assertFalse((self.home / '.codex/memories').is_symlink())
+        self.assertFalse((self.mounts / 'codex/data/sqlite').exists())
 
     def test_without_mount_preserves_image_defaults(self):
-        self.put(self.agent / "settings.json", {"defaultModel": "image-default"})
-        self.run_entrypoint_config()
-        self.assertEqual(json.loads((self.agent / "settings.json").read_text())["defaultModel"], "image-default")
-        self.assertFalse((self.agent / "settings.json").is_symlink())
+        self.put(self.home / '.pi/agent/settings.json', {'image': True})
+        storage.setup(self.home, self.mounts)
+        self.assertFalse((self.home / '.pi/agent/settings.json').is_symlink())
 
-    def test_rejects_incomplete_config_without_creating_files(self):
-        self.config.mkdir(parents=True)
-        self.run_entrypoint_config(success=False)
-        self.assertEqual(list(self.config.iterdir()), [])
+    def test_rejects_missing_config_and_external_symlink(self):
+        base = self.mounts / 'pi'
+        base.mkdir(parents=True)
+        with self.assertRaises(ValueError):
+            storage.setup(self.home, self.mounts)
+        self.config('pi')
+        (base / 'config/settings.json').unlink()
+        outside = self.root / 'outside.json'
+        self.put(outside, {})
+        (base / 'config/settings.json').symlink_to(outside)
+        with self.assertRaises(ValueError):
+            storage.setup(self.home, self.mounts)
 
-    def test_rejects_symlink_in_sync_folder(self):
-        source = self.root / "outside.json"
-        self.put(source, {})
-        self.config.mkdir(parents=True)
-        (self.config / "settings.json").symlink_to(source)
-        self.put(self.config / "models.json", {})
-        self.run_entrypoint_config(success=False)
-
-
-if __name__ == "__main__":
-    unittest.main()
+    def test_init_waits_for_sync_instead_of_seeding(self):
+        with self.assertRaises(ValueError):
+            storage.initialize(self.home)
+        self.assertFalse(storage.host_root(self.home).exists())

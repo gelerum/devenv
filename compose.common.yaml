@@ -7,7 +7,7 @@ services:
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     env_file:
-      - path: ${HOME}/.config/devenv/claude.env
+      - path: ${HOME}/.config/devenv/agents/claude/auth/claude.env
         required: false
     environment:
       - TERM
@@ -22,11 +22,23 @@ services:
       - GIT_CONFIG_KEY_1=tag.gpgsign
       - GIT_CONFIG_VALUE_1=false
     volumes:
-      - ${HOME}/.claude/projects:/home/q/.claude/projects:z
-      - ${HOME}/.pi/agent/sessions:/home/q/.pi/agent/sessions:z
-      - ${HOME}/.pi/agent/auth.json:/home/q/.pi/agent/auth.json:z
-      - ${HOME}/.config/devenv/pi:/run/pi-config:z
-      - ${HOME}/.pi/agent/memory:/home/q/.pi/agent/memory:z
+      # Единая структура: config/data синхронизируются, auth — только локально.
+      - ${HOME}/.config/devenv/agents/claude/config:/run/agents/claude/config:z
+      - ${HOME}/.config/devenv/agents/claude/auth:/run/agents/claude/auth:z
+      - ${HOME}/.config/devenv/agents/claude/data:/run/agents/claude/data:z
+      - ${HOME}/.config/devenv/agents/claude/data/projects:/home/q/.claude/projects:z
+      - ${HOME}/.config/devenv/agents/codex/config:/run/agents/codex/config:z
+      - ${HOME}/.config/devenv/agents/codex/auth:/run/agents/codex/auth:z
+      - ${HOME}/.config/devenv/agents/codex/data:/run/agents/codex/data:z
+      - ${HOME}/.config/devenv/agents/codex/data/sessions:/home/q/.codex/sessions:z
+      - ${HOME}/.config/devenv/agents/codex/data/archived_sessions:/home/q/.codex/archived_sessions:z
+      - ${HOME}/.config/devenv/agents/codex/data/memories:/home/q/.codex/memories:z
+      - ${HOME}/.local/share/devenv/agents/codex/sqlite:/home/q/.local/state/codex/sqlite:z
+      - ${HOME}/.config/devenv/agents/pi/config:/run/agents/pi/config:z
+      - ${HOME}/.config/devenv/agents/pi/auth:/run/agents/pi/auth:z
+      - ${HOME}/.config/devenv/agents/pi/data/sessions:/home/q/.pi/agent/sessions:z
+      - ${HOME}/.config/devenv/agents/pi/data/memory:/home/q/.pi/agent/memory:z
+      - ${HOME}/.config/devenv/agents/pi/data/subagents:/home/q/.pi/agent/subagents:z
       - devenv-cache:/home/q/.cache/devenv
       - devenv-mason:/home/q/.local/share/nvim/mason
       # Папка, а не том: так store видно на хосте. Отдельно от /nix хоста
