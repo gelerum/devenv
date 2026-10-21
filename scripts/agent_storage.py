@@ -22,7 +22,7 @@ AGENTS = ("claude", "codex", "pi")
 CONFIG = {
     "claude": ("settings.json",),
     "codex": ("config.toml",),
-    "pi": ("settings.json", "models-store.json"),
+    "pi": ("settings.json", "models.json"),
 }
 DATA_DIRS = {
     "claude": ("projects",),
@@ -44,7 +44,7 @@ FILES = {
     },
     "pi": {
         "settings.json": "config/settings.json",
-        "models-store.json": "config/models-store.json",
+        "models.json": "config/models.json",
         "auth.json": "auth/auth.json",
     },
 }
