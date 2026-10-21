@@ -63,7 +63,7 @@ update_tools() {
 	set_arg FZF_TAB_REF "$(git ls-remote https://github.com/Aloxaf/fzf-tab HEAD | cut -f1)"
 	set_arg ZSH_HISTORY_SUBSTRING_SEARCH_REF "$(git ls-remote https://github.com/zsh-users/zsh-history-substring-search HEAD | cut -f1)"
 
-	read -r v sha < <(github_release openai/codex codex-x86_64-unknown-linux-musl.tar.gz)
+	read -r v sha < <(github_release openai/codex codex-package-x86_64-unknown-linux-musl.tar.gz)
 	set_arg CODEX_VERSION "$v" && set_arg CODEX_SHA256 "$sha"
 
 	read -r v sha < <(github_release earendil-works/pi pi-linux-x64.tar.gz)
