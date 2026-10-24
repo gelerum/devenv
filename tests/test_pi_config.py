@@ -66,7 +66,7 @@ class AgentConfigTests(unittest.TestCase):
         for agent, files in storage.FILES.items():
             for name, target in files.items():
                 native = storage.native_home(self.home, agent) / name
-                if target.startswith('auth/'):
+                if target.startswith('auth/') and agent != 'pi':
                     self.assertFalse(native.is_symlink())
                     saved = self.mounts / agent / target
                     self.assertEqual(native.read_bytes() if native.is_file() else None,

@@ -48,6 +48,18 @@ FILES = {
         "auth.json": "auth/auth.json",
     },
 }
+# Pi locks <agent-dir>/auth.json.lock with realpath=False. A file symlink
+# alone would share credentials but leave each container with its own lock.
+# This shared agent-dir view redirects non-auth resources to native paths.
+PI_VIEW_DIRS = (
+    "agents", "extensions", "skills", "prompts", "themes", "sessions", "memory",
+    "subagents", "bin", "npm", "git", "tmp", "tools",
+)
+PI_VIEW_FILES = (
+    "settings.json", "models.json", "keybindings.json", "mcp.json",
+    "AGENTS.override.md", "AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD",
+    "SYSTEM.md", "APPEND_SYSTEM.md", "models-store.json", "trust.json",
+)
 CODEX_CONFIG = """cli_auth_credentials_store = "file"
 [analytics]
 enabled = false
@@ -240,13 +252,19 @@ def fingerprint(path):
 
 
 @contextmanager
-def client_lock(home, agent):
+def client_lock(home, agent, shared=False):
     native = native_home(home, agent)
     native.mkdir(parents=True, exist_ok=True)
     with (native / ".devenv-client.lock").open("a") as handle:
         try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            mode = fcntl.LOCK_SH if shared else fcntl.LOCK_EX
+            fcntl.flock(handle, mode | fcntl.LOCK_NB)
         except BlockingIOError as exc:
+            if shared:
+                raise ValueError(
+                    "pi: в контейнере работает старый лаунчер; "
+                    "сначала штатно завершите его перед переходом на общий auth-store"
+                ) from exc
             raise ValueError(
                 f"{agent} уже запущен в этом контейнере; "
                 "для параллельной задачи используйте другой контейнер"
@@ -254,27 +272,104 @@ def client_lock(home, agent):
         yield
 
 
-def reconcile(home, mounts, agent):
-    """CAS publication: private credentials cannot resurrect an older login.
+def validate_pi_resource_paths(mounts):
+    """The view preserves paths inside native agent-dir, not its ancestors."""
+    path = mounts / "pi/config/settings.json"
+    settings = json.loads(path.read_text(encoding="utf-8-sig"))
+    for field in ("packages", "extensions", "skills", "prompts", "themes"):
+        for entry in settings.get(field) or []:
+            source = entry.get("source") if isinstance(entry, dict) else entry
+            if not isinstance(source, str):
+                continue
+            normalized = os.path.normpath(source.removeprefix("-"))
+            if normalized == ".." or normalized.startswith("../"):
+                raise ValueError(
+                    f"{path}: {field}: {source!r} выходит за пределы agent-dir; "
+                    "для общего auth-store замените его абсолютным native-путём"
+                )
 
-    Auth is private during a command. Config/data retain native symlinks, but
-    atomically replaced files are published only if shared state is unchanged.
+
+def pi_store(home, mounts):
+    """Shared credentials AND Pi's own lock, with native non-auth resources."""
+    native = native_home(home, "pi")
+    auth = mounts / "pi/auth"
+    view = auth / "agent"
+    view.mkdir(exist_ok=True, mode=0o700)
+    links = {"auth.json": auth / "auth.json"}
+    for name in PI_VIEW_DIRS:
+        (native / name).mkdir(parents=True, exist_ok=True)
+    # Preserve custom native-relative resources such as packages=["./my-package"].
+    # Locks/baselines are launcher-private and must not be exposed in the view.
+    custom = [p.name for p in native.iterdir()
+              if p.name != "auth.json" and not p.name.startswith(".devenv-")
+              and not p.name.endswith(".lock")]
+    links.update({name: native / name for name in (*PI_VIEW_DIRS, *PI_VIEW_FILES, *custom)})
+    for name, target in links.items():
+        path = view / name
+        if path.is_symlink() and path.readlink() == target:
+            continue
+        if path.is_symlink():
+            path.unlink()
+        elif path.exists():
+            raise ValueError(f"Неожиданный файл в pi auth view: {path}")
+        path.symlink_to(target)
+    return view
+
+
+def reconcile_pi_auth(path, target, base):
+    """Retire private copies without publishing potentially revoked tokens.
+
+    Upgrade with all old clients stopped. Divergent copies are retained for
+    manual recovery; the shared store remains authoritative.
+    """
+    if path.is_symlink() and path.readlink() == target:
+        return
+    if path.is_file() and fingerprint(path) != fingerprint(target):
+        conflict = base / "auth/conflicts"
+        conflict.mkdir(exist_ok=True, mode=0o700)
+        saved = conflict / (uuid.uuid4().hex + "-auth.json")
+        atomic_copy(path, saved)
+        print(
+            f"pi: приватная копия auth.json не опубликована; "
+            f"копия сохранена в {saved}; при необходимости выполните /login",
+            file=sys.stderr,
+        )
+    if path.is_file() or path.is_symlink():
+        path.unlink()
+    path.symlink_to(target)
+
+
+def reconcile(home, mounts, agent):
+    """CAS publication for private clients; Pi uses a live shared auth store.
+
+    Claude/Codex auth is private during a command. Config/data retain native
+    symlinks, but replacements are published only if shared state is unchanged.
     A per-device lock + revisions (including logout tombstones) coordinate all
     containers. Conflicting files are preserved outside Syncthing in auth/.
     """
     native, base = native_home(home, agent), mounts / agent
+    if agent == "pi":
+        validate_pi_resource_paths(mounts)
     native.mkdir(parents=True, exist_ok=True)
     baseline_path = native / ".devenv-baselines.json"
-    baseline = json.loads(baseline_path.read_text()) if baseline_path.is_file() else {}
     metadata_path = base / "auth/.devenv-state.json"
     with (base / "auth/.devenv-storage.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
+        baseline = json.loads(baseline_path.read_text()) if baseline_path.is_file() else {}
         metadata = (
             json.loads(metadata_path.read_text()) if metadata_path.is_file() else {}
         )
         updated = {}
         for name, relative in FILES[agent].items():
             path, target = native / name, base / relative
+            if agent == "pi" and relative.startswith("auth/"):
+                reconcile_pi_auth(path, target, base)
+                metadata.pop(name, None)
+                continue
+            if agent == "pi" and path.is_symlink() and path.readlink() == target:
+                # Do not unlink live config paths underneath other Pi sessions.
+                metadata.pop(name, None)
+                continue
             actual = fingerprint(target)
             state = metadata.get(name)
             if state is None or state["hash"] != actual:
@@ -330,6 +425,8 @@ def reconcile(home, mounts, agent):
                 path.symlink_to(target)
             metadata[name] = state
             updated[name] = {**state, "local": fingerprint(path)}
+        if agent == "pi":
+            pi_store(home, mounts)
         write_json(metadata_path, metadata)
         write_json(baseline_path, updated)
 
@@ -339,7 +436,7 @@ def setup(home, mounts=Path("/run/agents")):
         base = mounts / agent
         if not base.is_dir():
             continue
-        with client_lock(home, agent):
+        with client_lock(home, agent, shared=agent == "pi"):
             # Recover replacements/deletions before relinking after a restart.
             recovering = (native_home(home, agent) / ".devenv-baselines.json").is_file()
             if recovering:
@@ -367,7 +464,9 @@ def launch(home, mounts, agent, args, binary=None):
     )
     if not (mounts / agent).is_dir():
         os.execv(str(binary), [str(binary), *args])
-    with client_lock(home, agent):
+    # New Pi clients share this legacy guard: coexist with each other, but
+    # reject old launchers holding it exclusively (and prevent old starts).
+    with client_lock(home, agent, shared=agent == "pi"):
         return run_client(home, mounts, agent, args, binary)
 
 
@@ -382,7 +481,11 @@ def run_client(home, mounts, agent, args, binary):
         runtime.mkdir(parents=True, exist_ok=True)
         lock = (runtime / ".devenv-active.lock").open("a")
         fcntl.flock(lock, fcntl.LOCK_SH)
-    child = subprocess.Popen([str(binary), *args])
+    env = None
+    if agent == "pi":
+        # Also inherited by native Pi subprocesses (e.g. extension subagents).
+        env = {**os.environ, "PI_CODING_AGENT_DIR": str(mounts / "pi/auth/agent")}
+    child = subprocess.Popen([str(binary), *args], env=env)
     # SIGINT is already delivered to the child in the foreground process group.
     signal.signal(signal.SIGINT, lambda *_: None)
     for sig in (signal.SIGTERM, signal.SIGHUP):
@@ -391,7 +494,8 @@ def run_client(home, mounts, agent, args, binary):
         code = child.wait()
     finally:
         try:
-            reconcile(home, mounts, agent)
+            if agent != "pi":
+                reconcile(home, mounts, agent)
         finally:
             if lock is not None:
                 lock.close()
