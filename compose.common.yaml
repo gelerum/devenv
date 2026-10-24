@@ -13,6 +13,8 @@ services:
       - TERM
       - COLORTERM
       - EDITOR=nvim
+      # Рефлексия памяти pi при выходе выполняется локальной моделью.
+      - PI_MEMORY_REFLECT_MODEL=${PI_MEMORY_REFLECT_MODEL:-calculation/qwen3.6-35b-a3b}
       # Языки для LSP из mason, например "go python". Пусто - все
       - DEVENV_LANGS
 
