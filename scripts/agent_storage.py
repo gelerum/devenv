@@ -15,6 +15,7 @@ import tempfile
 import uuid
 from contextlib import closing, contextmanager
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import tomllib
 
@@ -91,6 +92,7 @@ def make_dirs(home):
             (root / agent / kind).mkdir(parents=True, exist_ok=True, mode=0o700)
         for name in DATA_DIRS[agent]:
             (root / agent / "data" / name).mkdir(parents=True, exist_ok=True)
+    (root / "pi/data/hindsight").mkdir(parents=True, exist_ok=True, mode=0o700)
     runtime_root(home).mkdir(parents=True, exist_ok=True, mode=0o700)
     (home / ".local/share/devenv/nix").mkdir(parents=True, exist_ok=True)
     auth = root / "pi/auth/auth.json"
@@ -453,6 +455,75 @@ def setup(home, mounts=Path("/run/agents")):
                 reconcile(home, mounts, agent)
 
 
+def prepare_hindsight(home, mounts, runtime=Path("/opt/hindsight")):
+    """Wire the official pinned runtime; credentials never enter synced config."""
+    base = mounts / "pi"
+    config_path = base / "config/hindsight.json"
+    config = json.loads(config_path.read_text()) if config_path.is_file() else {}
+    if not isinstance(config, dict) or not isinstance(config.get("enabled", False), bool):
+        raise ValueError("pi/config/hindsight.json: expected object with boolean enabled")
+    enabled = config.pop("enabled", False)
+    extension = str(runtime / ".hindsight/coding-agents/dist/pi.js")
+    skill = str(runtime / ".pi/agent/skills/hindsight-coding-agent")
+    env = {}
+    if enabled:
+        if any(field in config for field in ("harnesses", "paths", "banks")):
+            raise ValueError("Hindsight config overrides are not supported in the opt-in pilot")
+        def contains_token(value):
+            if isinstance(value, dict):
+                return any(k in ("apiToken", "apiKey") or contains_token(v) for k, v in value.items())
+            return isinstance(value, list) and any(contains_token(v) for v in value)
+        if contains_token(config):
+            raise ValueError("Hindsight credentials belong in pi/auth/hindsight-api-key, not config")
+        if config.get("serverMode", "self-hosted") != "self-hosted":
+            raise ValueError("devenv Hindsight supports only explicit self-hosted mode")
+        url = urlsplit(str(config.get("apiUrl", "")))
+        if url.scheme not in ("http", "https") or not url.hostname or url.username is not None or url.password is not None or url.query or url.fragment:
+            raise ValueError("Hindsight needs an explicit http(s) apiUrl; no implicit Cloud fallback")
+        mapping = config.get("mapPathToBank")
+        if config.get("optInOnly") is not True or not isinstance(mapping, dict) or not mapping or any(
+            not isinstance(p, str) or not Path(p).is_absolute() or not isinstance(bank, str) or not bank.strip()
+            for p, bank in mapping.items()
+        ) or config.get("optInPaths"):
+            raise ValueError("Hindsight requires optInOnly and explicit mapPathToBank")
+        if not Path(extension).is_file() or not (Path(skill) / "SKILL.md").is_file():
+            raise ValueError("Hindsight runtime missing: rebuild the devenv image")
+        legacy = home / ".pi/agent/extensions/memory.ts"
+        if legacy.is_file() and 'process.env.PI_MEMORY === "0"' not in legacy.read_text():
+            raise ValueError("Update dotfiles: legacy memory extension does not support PI_MEMORY=0")
+        secret = base / "auth/hindsight-api-key"
+        if secret.is_symlink() or not secret.is_file():
+            raise ValueError("Create local pi/auth/hindsight-api-key before enabling Hindsight")
+        token = secret.read_text().strip()
+        if len(token) < 32 or any(c.isspace() for c in token):
+            raise ValueError("Hindsight API key must be a single token of at least 32 characters")
+        private = base / "auth/hindsight-runtime.json"
+        config.update(serverMode="self-hosted", apiToken=token, autoUpdate=False)
+        write_json(private, config)
+        (home / ".hindsight").mkdir(parents=True, exist_ok=True)
+        env = {"HINDSIGHT_CONFIG": str(private), "PI_MEMORY": "0"}
+    # Avoid replacing the native settings symlink. This lock serializes our
+    # own concurrent launchers; preserve every unrelated resource and option.
+    with (base / "auth/.hindsight-setup.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        settings_path = base / "config/settings.json"
+        settings = json.loads(settings_path.read_text(encoding="utf-8-sig"))
+        changed = False
+        for field, resource in (("extensions", extension), ("skills", skill)):
+            values = settings.get(field, [])
+            if not isinstance(values, list):
+                raise ValueError(f"pi/settings.json: {field} must be an array")
+            updated = [x for x in values if x != resource]
+            if enabled:
+                updated.append(resource)
+            if updated != values:
+                settings[field] = updated
+                changed = True
+        if changed:
+            write_json(settings_path, settings)
+    return env
+
+
 def launch(home, mounts, agent, args, binary=None):
     binary = (
         binary
@@ -484,7 +555,12 @@ def run_client(home, mounts, agent, args, binary):
     env = None
     if agent == "pi":
         # Also inherited by native Pi subprocesses (e.g. extension subagents).
-        env = {**os.environ, "PI_CODING_AGENT_DIR": str(mounts / "pi/auth/agent")}
+        # Upstream accepts HINDSIGHT_* environment overrides, including opt-in
+        # paths. Only this launcher's private config may choose the endpoint
+        # and allowed projects; inherited parent/subagent config must not widen it.
+        env = {k: v for k, v in os.environ.items() if not k.startswith("HINDSIGHT_")}
+        env["PI_CODING_AGENT_DIR"] = str(mounts / "pi/auth/agent")
+        env.update(prepare_hindsight(home, mounts))
     child = subprocess.Popen([str(binary), *args], env=env)
     # SIGINT is already delivered to the child in the foreground process group.
     signal.signal(signal.SIGINT, lambda *_: None)

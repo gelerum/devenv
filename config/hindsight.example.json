@@ -1,0 +1,23 @@
+{
+  "enabled": true,
+  "serverMode": "self-hosted",
+  "apiUrl": "http://calculation.tailnet.internal:9078",
+  "autoUpdate": false,
+  "optInOnly": true,
+  "mapPathToBank": {
+    "/home/q/2_Code/infra": "dev-infra"
+  },
+  "autoInject": "recall",
+  "recallOptions": {
+    "types": ["observation", "world", "experience"],
+    "budget": "low",
+    "max_tokens": 2000
+  },
+  "gitIngest": "none",
+  "autoSeed": false,
+  "codebaseSurvey": false,
+  "retainSessions": true,
+  "maxParallelRetains": 1,
+  "pageTriggerType": "cron",
+  "pageTriggerCron": "H * * * *"
+}

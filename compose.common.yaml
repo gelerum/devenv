@@ -13,7 +13,8 @@ services:
       - TERM
       - COLORTERM
       - EDITOR=nvim
-      # Рефлексия памяти pi при выходе выполняется локальной моделью.
+      # Used only when Hindsight is disabled; the launcher switches the old
+      # extension off only after external memory is explicitly configured.
       - PI_MEMORY_REFLECT_MODEL=${PI_MEMORY_REFLECT_MODEL:-calculation/qwen3.6-35b-a3b}
       - PI_CACHE_RETENTION
       # Языки для LSP из mason, например "go python". Пусто - все
@@ -42,6 +43,7 @@ services:
       - ${HOME}/.config/devenv/agents/pi/data/sessions:/home/q/.pi/agent/sessions:z
       - ${HOME}/.config/devenv/agents/pi/data/memory:/home/q/.pi/agent/memory:z
       - ${HOME}/.config/devenv/agents/pi/data/subagents:/home/q/.pi/agent/subagents:z
+      - ${HOME}/.config/devenv/agents/pi/data/hindsight:/home/q/.hindsight:z
       - devenv-cache:/home/q/.cache/devenv
       - devenv-mason:/home/q/.local/share/nvim/mason
       # Папка, а не том: так store видно на хосте. Отдельно от /nix хоста

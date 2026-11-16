@@ -32,6 +32,8 @@ ARG CODEX_VERSION=0.167.0
 ARG CODEX_SHA256=3bbf75e83de6b58aed28f2cf6e33ad423ec31fd4700a1457b94be557ea5a7c6e
 ARG PI_VERSION=1.5.0
 ARG PI_SHA256=df870ba0e344cb7b3358d8d8f19397b8b8d225a8669784736ad68a5c2169d53b
+ARG HINDSIGHT_VERSION=0.8.7
+ARG HINDSIGHT_SHA256=f9ad8b8c7df8c363cf05dbbfd75089424ccd54aca0cfee27ae298e28a217567d
 ARG BUN_VERSION=1.4.4
 ARG BUN_SHA256=bf8ccbfb2b0b80159e0f9a6d15c55317add8077534dbc6130a3edb52fccb395c
 ARG FZF_TAB_REF=24105b15714bfec37989ed5c5b6e60f572253019
@@ -206,7 +208,7 @@ ARG GID=1000
 RUN userdel -r ubuntu \
  && groupadd -g "$GID" q \
  && useradd -m -u "$UID" -g q -s /usr/bin/zsh q \
- && install -d -o q -g q /opt/node_modules
+ && install -d -o q -g q /opt/node_modules /opt/hindsight
 
 # Nix без демона, от q. store и var/nix заранее, иначе nix уходит в chroot-хранилище
 # в ~/.local/share/nix, а chroot в контейнере запрещён
@@ -219,6 +221,17 @@ ENV PATH=/home/q/.local/bin:$PATH
 # Точки монтирования томов, чтобы тома принадлежали q. ~/.pi/agent заранее,
 # иначе stow сделает его ссылкой на dotfiles и pi будет писать auth.json туда
 RUN mkdir -p ~/.cache/devenv ~/.local/share/nvim/mason ~/.pi/agent/sessions ~/.pi/agent/memory ~/.codex
+
+# Official installer stages a self-contained, bundled runtime (no npm deps).
+# Its generated settings are a template, not the host's real settings. Runtime
+# and skill live outside the live-mounted dotfiles and survive recreation.
+ARG HINDSIGHT_VERSION HINDSIGHT_SHA256
+RUN fetch "https://registry.npmjs.org/@vectorize-io/hindsight-coding-agents/-/hindsight-coding-agents-${HINDSIGHT_VERSION}.tgz" "$HINDSIGHT_SHA256" /tmp/hindsight.tgz \
+ && mkdir /tmp/hindsight-package \
+ && tar -xzf /tmp/hindsight.tgz -C /tmp/hindsight-package --strip-components=1 \
+ && HOME=/opt/hindsight bun /tmp/hindsight-package/dist/installer.js install pi \
+      --server self-hosted --api-url http://calculation.tailnet.internal:9078 \
+ && rm -rf /tmp/hindsight-package /tmp/hindsight.tgz
 
 # Плагины zsh, которых нет в apt
 ARG FZF_TAB_REF ZSH_HISTORY_SUBSTRING_SEARCH_REF
