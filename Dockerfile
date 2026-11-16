@@ -160,6 +160,21 @@ RUN fetch "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-x8
  && tar -xzf /tmp/uv.tar.gz -C /usr/local/bin --strip-components=1 uv-x86_64-unknown-linux-gnu/uv uv-x86_64-unknown-linux-gnu/uvx \
  && rm /tmp/uv.tar.gz
 
+# Shared notebook IDE, separate from every project's scientific environment.
+# uv.lock pins transitive wheels/hashes; system Python is pinned by the Ubuntu
+# snapshot. Do not put this venv into the shared mutable project cache volume.
+COPY jupyter/pyproject.toml jupyter/uv.lock /opt/jupyter/
+RUN UV_PROJECT_ENVIRONMENT=/opt/jupyter/.venv UV_CACHE_DIR=/tmp/jupyter-uv-cache \
+      uv sync --project /opt/jupyter --frozen --no-dev \
+        --python /usr/bin/python3 --no-python-downloads \
+ && rm -rf /tmp/jupyter-uv-cache
+COPY scripts/jupyter_project.py /usr/local/lib/devenv/jupyter_project.py
+RUN printf '#!/bin/sh\nexec /usr/bin/python3 /usr/local/lib/devenv/jupyter_project.py "$@"\n' \
+      > /usr/local/bin/devenv-jupyter \
+ && chmod +x /usr/local/bin/devenv-jupyter \
+ && printf '#!/bin/sh\nexec /opt/jupyter/.venv/bin/ruff "$@"\n' > /usr/local/bin/devenv-ruff \
+ && chmod +x /usr/local/bin/devenv-ruff
+
 # Хук для conda activate - в системном /etc/zsh/zshrc, а не в .zshrc из dotfiles
 ARG MINIFORGE_VERSION MINIFORGE_SHA256
 RUN fetch "https://github.com/conda-forge/miniforge/releases/download/${MINIFORGE_VERSION}/Miniforge3-${MINIFORGE_VERSION}-Linux-x86_64.sh" "$MINIFORGE_SHA256" /tmp/miniforge.sh \

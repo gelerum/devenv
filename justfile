@@ -28,17 +28,34 @@ agent := "podman compose --progress quiet -f '" + src + "compose.task.yaml' " + 
 volumes := "python3 '" + repo + "/scripts/agent_storage.py' init && for v in devenv-cache devenv-mason; do podman volume exists $v || podman volume create $v >/dev/null; done"
 
 # compose только для создания: каждый его вызов ~1с
-# Зайти в контейнер (поднимет, если не запущен); удаляется, когда выходит последний шелл
+# Зайти в контейнер; удаляется после последнего шелла, если Jupyter не работает
 # [default]: без него just через import не считает рецепт рецептом по умолчанию
 [default]
 default:
     [ "$(podman inspect -f '{{{{.State.Running}}' {{container}} 2>/dev/null)" = true ] || { {{volumes}} && {{compose}} up -d -y; }
     -podman exec -it {{container}} zsh
-    [ "$(podman inspect -f '{{{{len .ExecIDs}}' {{container}})" != 0 ] || podman rm -f {{container}} >/dev/null
+    [ "$(podman inspect -f '{{{{len .ExecIDs}}' {{container}})" != 0 ] || podman exec {{container}} devenv-jupyter --status >/dev/null 2>&1 || podman rm -f {{container}} >/dev/null
 
 up:
     {{volumes}}
     {{compose}} up -d -y
+
+# IDE из образа, kernel из .venv проекта. Процесс не привязан к SSH/exec-шеллу.
+jupyter:
+    {{volumes}}
+    {{compose}} up -d -y
+    podman exec {{container}} devenv-jupyter --detach
+
+jupyter-status:
+    podman exec {{container}} devenv-jupyter --status
+
+# Содержит секретный login token — не публиковать вывод.
+jupyter-url:
+    podman exec {{container}} devenv-jupyter --url
+
+# Останавливает также kernels: сначала сохраните ноутбуки/вычисления.
+jupyter-stop:
+    podman exec {{container}} devenv-jupyter --stop
 
 down:
     {{compose}} down

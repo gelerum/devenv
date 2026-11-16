@@ -28,10 +28,13 @@ echo "import '$PWD/remote.just'" > ~/.justfile
 
 | Команда | Что делает |
 |---|---|
-| `just` | зайти в контейнер; удаляется, когда выходит последний шелл |
+| `just` | зайти в контейнер; удаляется после последнего шелла, если Jupyter не работает |
 | `just up` / `just down` | поднять в фоне / удалить |
 | `just pull` | скачать свежий образ; нужен перезапуск контейнера |
 | `just build` | собрать образ с локальными dotfiles |
+| `just jupyter` | запустить проектный JupyterLab в фоне (kernel из `.venv`) |
+| `just jupyter-status` / `just jupyter-url` | статус / URL с секретным токеном |
+| `just jupyter-stop` | остановить Jupyter и kernels после сохранения работы |
 | `just migrate-agents` | скопировать данные прежних схем в единое хранилище |
 | `just agents-snapshot` | сделать переносимые снимки SQLite Codex после завершения клиентов |
 | `just agents-restore` | восстановить SQLite из синхронизированных снимков |
@@ -56,6 +59,19 @@ podman volume create devenv-mason
 podman compose -p "${PWD##*/}" -f 'https://github.com/gelerum/devenv.git#main:compose.base.yaml' up -d
 podman compose -p "${PWD##*/}" -f 'https://github.com/gelerum/devenv.git#main:compose.base.yaml' exec dev zsh
 ```
+
+## JupyterLab
+
+IDE-инструменты закреплены в отдельном окружении образа, а `ipykernel` и научные
+библиотеки — в `.venv` каждого проекта. Экземпляр Jupyter работает в контейнере
+проекта на calculation; браузер ноутбука подключается через SSH к loopback-порту.
+Basedpyright даёт подсказки и проверку типов, Ruff сортирует импорты и форматирует
+при сохранении; полный lint — `devenv-ruff check notebook.ipynb` в контейнере.
+
+Диапазон проектных портов **19200–19299**: blockchain Jupyter `19200`, ligand
+Jupyter `19210`, ligand MLflow `19211`. Внутренний `8888` контейнера не занимает
+`8888` хоста (SearXNG). Порты публикуются в проектных `compose.local.yaml`, не
+глобально. [Сборка, настройка двух машин, запуск и проверки](docs/jupyter.md).
 
 ## Единое хранилище агентов
 
