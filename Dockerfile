@@ -41,7 +41,7 @@ ARG ZSH_HISTORY_SUBSTRING_SEARCH_REF=a0bdb0d47dbaba31dba2db7af8c48a5d9c74049a
 # Скиллы Claude для Obsidian: коммит kepano/obsidian-skills
 ARG OBSIDIAN_SKILLS_REF=3ccff5338ea700537839b21900aa5358a0402c98
 ARG DOTFILES_REPO=https://github.com/gelerum/dotfiles
-ARG DOTFILES_REF=0691918d6e692224c5bb559a6db87ed30f9450c3
+ARG DOTFILES_REF=83c8a2a59ea9409dbde0ec1ad6ba53570f1f2eac
 
 # dotfiles на зафиксированном коммите. Локальная сборка подменяет стадию dotfiles
 # своей папкой: --build-context dotfiles=<путь> (just build), тогда клон не нужен
