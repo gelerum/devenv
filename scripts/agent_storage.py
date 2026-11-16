@@ -6,6 +6,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 import shutil
 import signal
 import sqlite3
@@ -455,7 +456,63 @@ def setup(home, mounts=Path("/run/agents")):
                 reconcile(home, mounts, agent)
 
 
-def prepare_hindsight(home, mounts, runtime=Path("/opt/hindsight")):
+def hindsight_project(directory):
+    """Match memory.ts: main Git worktree root, or cwd outside Git; same path slug.
+
+    Never use a repo basename: identically named projects in different directories
+    must not share memory. Git worktrees deliberately share their main repo bank.
+    A broken/inaccessible repository is not permission to guess a different bank.
+    """
+    directory = Path(directory).resolve()
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            cwd=directory, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            timeout=10, env={**os.environ, "LC_ALL": "C"},
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ValueError("Cannot determine Hindsight project root with git") from exc
+    if result.returncode == 0:
+        common = Path(result.stdout.strip())
+        if not common.is_absolute():
+            raise ValueError("Git returned a non-absolute Hindsight project root")
+        if common.name == ".git":
+            root = common.parent
+        else:
+            # Submodules commonly store core.worktree relative to their
+            # metadata directory. For a separate git-dir without that setting,
+            # the main checkout is not recorded; only the main checkout itself
+            # can identify it safely. Never use the metadata path as a bank.
+            worktree = subprocess.run(
+                ["git", "config", "--path", "--get", "core.worktree"],
+                cwd=directory, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                timeout=10, env={**os.environ, "LC_ALL": "C"},
+            )
+            if worktree.returncode == 0 and worktree.stdout.strip():
+                root = (common / worktree.stdout.strip()).resolve()
+            else:
+                layout = subprocess.run(
+                    ["git", "rev-parse", "--show-toplevel", "--absolute-git-dir"],
+                    cwd=directory, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    timeout=10, env={**os.environ, "LC_ALL": "C"},
+                )
+                lines = layout.stdout.splitlines()
+                if layout.returncode or len(lines) != 2 or Path(lines[1]) != common:
+                    raise ValueError("Cannot determine Hindsight main worktree root; set core.worktree for this separate git-dir")
+                root = Path(lines[0])
+            if not root.is_absolute():
+                raise ValueError("Git returned a non-absolute Hindsight worktree root")
+    elif "not a git repository" in result.stderr:
+        root = directory
+    else:
+        raise ValueError("Cannot determine Hindsight project root: git probe failed")
+    # JS's legacy regexp has no /u flag: astral characters occupy two UTF-16
+    # code units and therefore become TWO dashes, not Python's single dash.
+    legacy_path = re.sub(r"[\U00010000-\U0010ffff]", "--", str(root))
+    return root, re.sub(r"[^a-zA-Z0-9]", "-", legacy_path)
+
+
+def prepare_hindsight(home, mounts, runtime=Path("/opt/hindsight"), cwd=None):
     """Wire the official pinned runtime; credentials never enter synced config."""
     base = mounts / "pi"
     config_path = base / "config/hindsight.json"
@@ -480,12 +537,28 @@ def prepare_hindsight(home, mounts, runtime=Path("/opt/hindsight")):
         url = urlsplit(str(config.get("apiUrl", "")))
         if url.scheme not in ("http", "https") or not url.hostname or url.username is not None or url.password is not None or url.query or url.fragment:
             raise ValueError("Hindsight needs an explicit http(s) apiUrl; no implicit Cloud fallback")
-        mapping = config.get("mapPathToBank")
-        if config.get("optInOnly") is not True or not isinstance(mapping, dict) or not mapping or any(
-            not isinstance(p, str) or not Path(p).is_absolute() or not isinstance(bank, str) or not bank.strip()
-            for p, bank in mapping.items()
-        ) or config.get("optInPaths"):
-            raise ValueError("Hindsight requires optInOnly and explicit mapPathToBank")
+        mode = config.pop("bankMode", "explicit-map")
+        if mode == "project-path":
+            # Derive only this session's mapping, never a global catch-all bank.
+            # Keep upstream opt-in so a session cannot silently capture another
+            # unrelated cwd. No global bank or git-remote identity is involved.
+            if any(k in config for k in ("bankId", "dynamicBankId", "bankIdTemplate", "mapPathToBank", "optInPaths")):
+                raise ValueError("project-path mode derives its bank automatically; remove bank overrides")
+            if config.get("optInOnly", True) is not True:
+                raise ValueError("project-path mode requires optInOnly=true")
+            root, bank = hindsight_project(cwd if cwd is not None else Path.cwd())
+            config.update(optInOnly=True, mapPathToBank={str(root): bank},
+                          bankId=bank, dynamicBankId=False)
+        elif mode == "explicit-map":
+            # Retain compatibility with existing manually scoped pilot configs.
+            mapping = config.get("mapPathToBank")
+            if config.get("optInOnly") is not True or not isinstance(mapping, dict) or not mapping or any(
+                not isinstance(p, str) or not Path(p).is_absolute() or not isinstance(bank, str) or not bank.strip()
+                for p, bank in mapping.items()
+            ) or config.get("optInPaths"):
+                raise ValueError("Hindsight requires optInOnly and explicit mapPathToBank")
+        else:
+            raise ValueError("Unknown Hindsight bankMode; use project-path or explicit-map")
         if not Path(extension).is_file() or not (Path(skill) / "SKILL.md").is_file():
             raise ValueError("Hindsight runtime missing: rebuild the devenv image")
         legacy = home / ".pi/agent/extensions/memory.ts"
@@ -497,8 +570,13 @@ def prepare_hindsight(home, mounts, runtime=Path("/opt/hindsight")):
         token = secret.read_text().strip()
         if len(token) < 32 or any(c.isspace() for c in token):
             raise ValueError("Hindsight API key must be a single token of at least 32 characters")
-        private = base / "auth/hindsight-runtime.json"
         config.update(serverMode="self-hosted", apiToken=token, autoUpdate=False)
+        # Different projects run concurrently and upstream re-reads this file.
+        # One shared filename would redirect an active session to the last
+        # project's bank. Content-addressed private configs also survive key /
+        # settings changes without mutating another running session's policy.
+        fingerprint = hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()
+        private = base / f"auth/hindsight-runtime-{fingerprint}.json"
         write_json(private, config)
         (home / ".hindsight").mkdir(parents=True, exist_ok=True)
         env = {"HINDSIGHT_CONFIG": str(private), "PI_MEMORY": "0"}

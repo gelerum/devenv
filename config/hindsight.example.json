@@ -3,10 +3,8 @@
   "serverMode": "self-hosted",
   "apiUrl": "http://calculation.tailnet.internal:9078",
   "autoUpdate": false,
+  "bankMode": "project-path",
   "optInOnly": true,
-  "mapPathToBank": {
-    "/home/q/2_Code/infra": "dev-infra"
-  },
   "autoInject": "recall",
   "recallOptions": {
     "types": ["observation", "world", "experience"],

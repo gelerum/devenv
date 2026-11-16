@@ -32,8 +32,8 @@ class HindsightTests(unittest.TestCase):
     def put(self, relative, value):
         (self.base / relative).write_text(json.dumps(value))
 
-    def prepare(self):
-        return storage.prepare_hindsight(self.home, self.mounts, self.runtime)
+    def prepare(self, cwd=None):
+        return storage.prepare_hindsight(self.home, self.mounts, self.runtime, cwd=cwd or self.root)
 
     def test_disabled_by_default(self):
         self.assertEqual(self.prepare(), {})
@@ -54,7 +54,13 @@ class HindsightTests(unittest.TestCase):
         self.assertTrue(native.is_symlink())
         private = Path(first['HINDSIGHT_CONFIG'])
         self.assertEqual(private.stat().st_mode & 0o777, 0o600)
-        self.assertEqual(json.loads(private.read_text())['apiToken'], 'a' * 64)
+        resolved = json.loads(private.read_text())
+        self.assertEqual(resolved['apiToken'], 'a' * 64)
+        self.assertEqual(resolved['bankId'], storage.hindsight_project(self.root)[1])
+        self.assertEqual(resolved['mapPathToBank'], {str(self.root): resolved['bankId']})
+        self.assertTrue(resolved['optInOnly'])
+        self.assertFalse(resolved['dynamicBankId'])
+        self.assertNotIn('bankMode', resolved)
         self.assertNotIn('a' * 64, (self.base / 'config/hindsight.json').read_text())
         self.assertNotIn('a' * 64, native.read_text())
 
@@ -92,6 +98,112 @@ class HindsightTests(unittest.TestCase):
             {'apiUrl': 'http://user:password@example.invalid'},
             {'apiUrl': 'http://'}, {'apiUrl': 'https://example.invalid?apiKey=secret'},
         ):
+            with self.subTest(extra=extra):
+                self.put('config/hindsight.json', {**self.config, **extra})
+                with self.assertRaises(ValueError):
+                    self.prepare()
+
+    def git(self, cwd, *args):
+        result = storage.subprocess.run(['git', *args], cwd=cwd, text=True,
+                                        capture_output=True, check=True)
+        return result.stdout.strip()
+
+    def test_path_slug_matches_legacy_memory(self):
+        project = self.root / '2_Code' / 'Alpha_Бета.test'
+        project.mkdir(parents=True)
+        root, bank = storage.hindsight_project(project)
+        self.assertEqual(root, project)
+        self.assertEqual(bank, storage.re.sub(r'[^a-zA-Z0-9]', '-', str(project)))
+        self.assertTrue(bank.endswith('-2-Code-Alpha------test'))
+
+    def test_repo_subdirectory_and_worktree_share_main_bank(self):
+        repo = self.root / 'repo'
+        repo.mkdir()
+        self.git(repo, 'init')
+        self.git(repo, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
+                 'commit', '--allow-empty', '-m', 'initial')
+        subdir = repo / 'src' / 'nested'
+        subdir.mkdir(parents=True)
+        worktree = self.root / 'other-worktree'
+        self.git(repo, 'worktree', 'add', '-b', 'test-worktree', str(worktree))
+        expected = storage.hindsight_project(repo)
+        self.assertEqual(storage.hindsight_project(subdir), expected)
+        self.assertEqual(storage.hindsight_project(worktree), expected)
+
+    def test_non_bmp_slug_uses_javascript_utf16_semantics(self):
+        project = self.root / 'emoji-😀'
+        project.mkdir()
+        self.assertTrue(storage.hindsight_project(project)[1].endswith('-emoji---'))
+
+    def test_separate_git_dir_and_its_worktree_share_main_root(self):
+        repo = self.root / 'separate'
+        repo.mkdir()
+        self.git(repo, 'init', '--separate-git-dir', str(self.root / 'git-metadata'))
+        self.git(repo, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
+                 'commit', '--allow-empty', '-m', 'initial')
+        subdir = repo / 'src'
+        subdir.mkdir()
+        expected = storage.hindsight_project(repo)
+        self.assertEqual(expected[0], repo)
+        self.assertEqual(storage.hindsight_project(subdir), expected)
+        worktree = self.root / 'separate-worktree'
+        self.git(repo, 'worktree', 'add', '-b', 'separate-test', str(worktree))
+        # Without core.worktree Git does not record the original main checkout
+        # for this unusual layout. Refuse to guess from the linked checkout.
+        with self.assertRaisesRegex(ValueError, 'core.worktree'):
+            storage.hindsight_project(worktree)
+        self.git(repo, 'config', 'core.worktree', str(repo))
+        self.assertEqual(storage.hindsight_project(worktree), expected)
+
+    def test_submodule_subdirectory_uses_submodule_root(self):
+        origin = self.root / 'origin'
+        origin.mkdir()
+        self.git(origin, 'init')
+        self.git(origin, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
+                 'commit', '--allow-empty', '-m', 'initial')
+        parent = self.root / 'parent'
+        parent.mkdir()
+        self.git(parent, 'init')
+        self.git(parent, '-c', 'protocol.file.allow=always', 'submodule', 'add', str(origin), 'child')
+        child = parent / 'child'
+        nested = child / 'src'
+        nested.mkdir()
+        self.assertEqual(storage.hindsight_project(child)[0], child)
+        self.assertEqual(storage.hindsight_project(nested), storage.hindsight_project(child))
+        self.assertNotEqual(storage.hindsight_project(child), storage.hindsight_project(parent))
+
+    def test_same_basename_different_roots_and_parallel_configs(self):
+        self.put('config/hindsight.json', self.config)
+        projects = [self.root / name / 'repo' for name in ('one', 'two')]
+        for project in projects:
+            project.mkdir(parents=True)
+        first = self.prepare(projects[0])
+        first_path = Path(first['HINDSIGHT_CONFIG'])
+        first_bytes = first_path.read_bytes()
+        second = self.prepare(projects[1])
+        self.assertNotEqual(first['HINDSIGHT_CONFIG'], second['HINDSIGHT_CONFIG'])
+        self.assertEqual(first_path.read_bytes(), first_bytes)
+        self.assertNotEqual(json.loads(first_bytes)['bankId'],
+                            json.loads(Path(second['HINDSIGHT_CONFIG']).read_text())['bankId'])
+        self.assertEqual(first, self.prepare(projects[0]))
+
+    def test_git_failure_does_not_guess_bank(self):
+        with patch.object(storage.subprocess, 'run', return_value=storage.subprocess.CompletedProcess(
+                ['git'], 128, '', 'fatal: detected dubious ownership')):
+            with self.assertRaisesRegex(ValueError, 'git probe failed'):
+                storage.hindsight_project(self.root)
+
+    def test_explicit_pilot_mapping_remains_compatible(self):
+        config = {k: v for k, v in self.config.items() if k != 'bankMode'}
+        config['mapPathToBank'] = {'/home/q/2_Code/infra': 'dev-infra'}
+        self.put('config/hindsight.json', config)
+        resolved = json.loads(Path(self.prepare()['HINDSIGHT_CONFIG']).read_text())
+        self.assertEqual(resolved['mapPathToBank'], config['mapPathToBank'])
+        self.assertNotIn('bankId', resolved)
+
+    def test_project_mode_rejects_all_bank_overrides_and_unknown_mode(self):
+        for extra in ({'bankId': 'shared'}, {'dynamicBankId': True},
+                      {'bankIdTemplate': 'shared'}, {'bankMode': 'typo'}):
             with self.subTest(extra=extra):
                 self.put('config/hindsight.json', {**self.config, **extra})
                 with self.assertRaises(ValueError):
