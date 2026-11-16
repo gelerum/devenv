@@ -5,7 +5,7 @@
   "autoUpdate": false,
   "bankMode": "project-path",
   "optInOnly": true,
-  "autoInject": "recall",
+  "autoInject": "none",
   "recallOptions": {
     "types": ["observation", "world", "experience"],
     "budget": "low",

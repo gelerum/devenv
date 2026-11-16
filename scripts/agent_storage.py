@@ -586,13 +586,22 @@ def prepare_hindsight(home, mounts, runtime=Path("/opt/hindsight"), cwd=None):
         fcntl.flock(lock, fcntl.LOCK_EX)
         settings_path = base / "config/settings.json"
         settings = json.loads(settings_path.read_text(encoding="utf-8-sig"))
+        # The pinned plugin also installs/syncs this companion into the
+        # auto-discovered user skills directory. Registering /opt's copy in
+        # settings as well produces a name collision on the next Pi start.
+        # Seed that one canonical location before discovery (including the
+        # first launch), then let upstream's own sync keep it current.
+        if enabled:
+            companion = home / ".pi/agent/skills/hindsight-coding-agent"
+            companion.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(skill, companion, dirs_exist_ok=True)
         changed = False
         for field, resource in (("extensions", extension), ("skills", skill)):
             values = settings.get(field, [])
             if not isinstance(values, list):
                 raise ValueError(f"pi/settings.json: {field} must be an array")
             updated = [x for x in values if x != resource]
-            if enabled:
+            if enabled and field == "extensions":
                 updated.append(resource)
             if updated != values:
                 settings[field] = updated

@@ -51,11 +51,18 @@ class HindsightTests(unittest.TestCase):
         self.assertEqual(settings['defaultModel'], 'keep')
         self.assertEqual(settings['extensions'][0], '/other.ts')
         self.assertEqual(len(settings['extensions']), 2)
+        self.assertNotIn(str(self.runtime / '.pi/agent/skills/hindsight-coding-agent'),
+                         settings.get('skills', []))
+        companion = self.home / '.pi/agent/skills/hindsight-coding-agent/SKILL.md'
+        self.assertEqual(companion.read_text(), 'test')
         self.assertTrue(native.is_symlink())
         private = Path(first['HINDSIGHT_CONFIG'])
         self.assertEqual(private.stat().st_mode & 0o777, 0o600)
         resolved = json.loads(private.read_text())
         self.assertEqual(resolved['apiToken'], 'a' * 64)
+        self.assertEqual(resolved['autoInject'], 'none')
+        self.assertTrue(resolved['retainSessions'])
+        self.assertEqual(resolved['pageTriggerType'], 'cron')
         self.assertEqual(resolved['bankId'], storage.hindsight_project(self.root)[1])
         self.assertEqual(resolved['mapPathToBank'], {str(self.root): resolved['bankId']})
         self.assertTrue(resolved['optInOnly'])
@@ -63,6 +70,22 @@ class HindsightTests(unittest.TestCase):
         self.assertNotIn('bankMode', resolved)
         self.assertNotIn('a' * 64, (self.base / 'config/hindsight.json').read_text())
         self.assertNotIn('a' * 64, native.read_text())
+
+    def test_companion_skill_migration_removes_only_duplicate_registration(self):
+        skill = str(self.runtime / '.pi/agent/skills/hindsight-coding-agent')
+        self.put('config/settings.json', {'extensions': ['/other.ts'],
+                                         'skills': ['/other-skill', skill]})
+        self.put('config/hindsight.json', self.config)
+        companion = self.home / '.pi/agent/skills/hindsight-coding-agent'
+        companion.mkdir(parents=True)
+        (companion / 'SKILL.md').write_text('old upstream copy')
+        self.prepare()
+        self.prepare()
+        settings = json.loads((self.base / 'config/settings.json').read_text())
+        self.assertEqual(settings['skills'], ['/other-skill'])
+        self.assertEqual((companion / 'SKILL.md').read_text(), 'test')
+        self.assertEqual(settings['extensions'].count(
+            str(self.runtime / '.hindsight/coding-agents/dist/pi.js')), 1)
 
     def test_disable_restores_other_resources(self):
         self.put('config/hindsight.json', self.config)
