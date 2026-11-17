@@ -71,6 +71,35 @@ class HindsightTests(unittest.TestCase):
         self.assertNotIn('a' * 64, (self.base / 'config/hindsight.json').read_text())
         self.assertNotIn('a' * 64, native.read_text())
 
+    def test_legacy_config_gets_scoped_memory_guidance_without_changing_synced_config(self):
+        self.config.pop('toolGuideExtra')
+        self.config.pop('pageRefreshEveryTurns')
+        self.put('config/hindsight.json', self.config)
+        private = Path(self.prepare()['HINDSIGHT_CONFIG'])
+        resolved = json.loads(private.read_text())
+        self.assertEqual(resolved['toolGuideExtra'], storage.HINDSIGHT_TASK_GUIDANCE)
+        self.assertEqual(resolved['pageRefreshEveryTurns'], 10)
+        self.assertEqual(resolved['autoInject'], 'none')
+        self.assertTrue(resolved['retainSessions'])
+        synced = json.loads((self.base / 'config/hindsight.json').read_text())
+        self.assertNotIn('toolGuideExtra', synced)
+        self.assertNotIn('pageRefreshEveryTurns', synced)
+
+    def test_explicit_memory_guidance_and_refresh_cadence_are_preserved(self):
+        self.config.update(toolGuideExtra='Custom user policy', pageRefreshEveryTurns=4)
+        self.put('config/hindsight.json', self.config)
+        resolved = json.loads(Path(self.prepare()['HINDSIGHT_CONFIG']).read_text())
+        self.assertEqual(resolved['toolGuideExtra'], 'Custom user policy')
+        self.assertEqual(resolved['pageRefreshEveryTurns'], 4)
+
+    def test_example_limits_mechanical_searches_but_preserves_explicit_memory_requests(self):
+        self.assertEqual(self.config['toolGuideExtra'], storage.HINDSIGHT_TASK_GUIDANCE)
+        self.assertIn('purely mechanical requests', self.config['toolGuideExtra'])
+        self.assertIn('Respect explicit requests to use memory', self.config['toolGuideExtra'])
+        self.assertIn('page-roster refresh is not itself a reason', self.config['toolGuideExtra'])
+        self.assertEqual(self.config['autoInject'], 'none')
+        self.assertTrue(self.config['retainSessions'])
+
     def test_companion_skill_migration_removes_only_duplicate_registration(self):
         skill = str(self.runtime / '.pi/agent/skills/hindsight-coding-agent')
         self.put('config/settings.json', {'extensions': ['/other.ts'],

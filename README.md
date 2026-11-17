@@ -233,6 +233,16 @@ content-addressed имена: параллельные сессии разных
 перезапустите pi через лаунчер, чтобы он сгенерировал новый runtime config;
 пересборка образа для смены `autoInject` не нужна.
 
+Memory lookup is relevance-driven. The supported `toolGuideExtra` setting narrows
+upstream's broad "new task" rule: mechanical reads/listings/formatting and explicitly
+specified commands do not need a search; project-history questions and explicit
+requests to use memory still do. The launcher supplies this guidance to older
+configs unless the user has an explicit override. `pageRefreshEveryTurns` defaults
+to 10 to avoid repeating the roster/guide every turn. This is model guidance, not
+a hard tool gate; session retention remains enabled. Existing launchers can use the
+same fields from `config/hindsight.example.json` without an image rebuild, but pi
+must be restarted through its launcher to receive a new private runtime config.
+
 Откат: `"enabled": false` в config и новая сессия pi. Неверный config, отсутствующий
 ключ или runtime дают явную ошибку до старта, без скрытого Cloud fallback.
 

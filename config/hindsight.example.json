@@ -6,6 +6,8 @@
   "bankMode": "project-path",
   "optInOnly": true,
   "autoInject": "none",
+  "pageRefreshEveryTurns": 10,
+  "toolGuideExtra": "Scope clarification for the retrieval rules above: a new task calls for memory only when it depends on project history, prior decisions, conventions, or unresolved work. Do not search memory for purely mechanical requests such as reading specified files, listing files, formatting text, or running an explicitly supplied command. Respect explicit requests to use memory. For a substantive investigation, one relevant search is usually enough; do not repeat an unhelpful search without a new question. A page-roster refresh is not itself a reason to call a memory tool. Keep session retention and deliberate initiative/document capture enabled.",
   "recallOptions": {
     "types": ["observation", "world", "experience"],
     "budget": "low",

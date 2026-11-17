@@ -21,6 +21,16 @@ from urllib.parse import urlsplit
 import tomllib
 
 AGENTS = ("claude", "codex", "pi")
+HINDSIGHT_TASK_GUIDANCE = (
+    "Scope clarification for the retrieval rules above: a new task calls for memory "
+    "only when it depends on project history, prior decisions, conventions, or unresolved work. "
+    "Do not search memory for purely mechanical requests such as reading specified files, "
+    "listing files, formatting text, or running an explicitly supplied command. "
+    "Respect explicit requests to use memory. For a substantive investigation, one relevant "
+    "search is usually enough; do not repeat an unhelpful search without a new question. "
+    "A page-roster refresh is not itself a reason to call a memory tool. "
+    "Keep session retention and deliberate initiative/document capture enabled."
+)
 CONFIG = {
     "claude": ("settings.json",),
     "codex": ("config.toml",),
@@ -524,6 +534,11 @@ def prepare_hindsight(home, mounts, runtime=Path("/opt/hindsight"), cwd=None):
     skill = str(runtime / ".pi/agent/skills/hindsight-coding-agent")
     env = {}
     if enabled:
+        # Upstream's autoInject=none guide otherwise calls every new request a
+        # reason to search. Add supported, explicit scope guidance rather than
+        # patching its runtime or disabling useful memory/session retention.
+        config.setdefault("toolGuideExtra", HINDSIGHT_TASK_GUIDANCE)
+        config.setdefault("pageRefreshEveryTurns", 10)
         if any(field in config for field in ("harnesses", "paths", "banks")):
             raise ValueError("Hindsight config overrides are not supported in the opt-in pilot")
         def contains_token(value):
