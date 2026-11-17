@@ -259,9 +259,12 @@ RUN fetch "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/x86_64-
 # reviewed upstream commit, using its Cargo.lock; deadnix has a proper crate.
 # The temporary Rust toolchain/cache never enter the final layer. Do not use
 # cargo install statix or compile tools on the first edit in a session.
+# rustup is a standalone pinned binary, not installed in this temporary
+# CARGO_HOME. Its automatic self-update would fail after installing the toolchain
+# ("rustup is not installed at ..."); do not update the pinned manager implicitly.
 ARG STATIX_REF DEADNIX_VERSION NIX_LINT_RUST_VERSION
 RUN export RUSTUP_HOME=/tmp/nix-lint-rustup CARGO_HOME=/tmp/nix-lint-cargo \
- && rustup toolchain install "$NIX_LINT_RUST_VERSION" --profile minimal \
+ && rustup toolchain install "$NIX_LINT_RUST_VERSION" --profile minimal --no-self-update \
  && export RUSTUP_TOOLCHAIN="$NIX_LINT_RUST_VERSION" \
  && cargo install --locked --git https://github.com/oppiliappan/statix --rev "$STATIX_REF" --root /tmp/nix-lint-bin statix \
  && cargo install --locked --version "$DEADNIX_VERSION" --root /tmp/nix-lint-bin deadnix \
