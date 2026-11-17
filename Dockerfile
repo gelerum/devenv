@@ -341,14 +341,19 @@ RUN mkdir -p ~/.claude/projects ~/.local/share/nvim \
  && echo '{"hasCompletedOnboarding": true, "theme": "auto"}' > ~/.claude.json
 
 # Только три скилла из плагина obsidian, без остальных
+# The pinned revision uses a plugin monorepo layout, not a root skills/ directory.
+# Validate every entry point before copying so layout changes fail explicitly.
 ARG OBSIDIAN_SKILLS_REF
 RUN git init -q /tmp/obsidian-skills \
  && cd /tmp/obsidian-skills \
- && git sparse-checkout set skills/obsidian-markdown skills/json-canvas skills/obsidian-bases \
+ && git sparse-checkout set plugins/obsidian/skills/obsidian-markdown plugins/obsidian/skills/json-canvas plugins/obsidian/skills/obsidian-bases \
  && git fetch -q --depth 1 --filter=blob:none https://github.com/kepano/obsidian-skills "$OBSIDIAN_SKILLS_REF" \
  && git checkout -q FETCH_HEAD \
+ && for skill in obsidian-markdown json-canvas obsidian-bases; do \
+      test -s "plugins/obsidian/skills/$skill/SKILL.md" || { echo "Missing Obsidian skill: $skill" >&2; exit 1; }; \
+    done \
  && mkdir -p ~/.claude/skills \
- && cp -r skills/. ~/.claude/skills/ \
+ && cp -r plugins/obsidian/skills/. ~/.claude/skills/ \
  && rm -rf /tmp/obsidian-skills
 
 # Отдельный слой: пересобирается, только когда меняется папка nvim в dotfiles
