@@ -1,0 +1,28 @@
+description: Pi code intelligence only; Hindsight owns durable memory
+prompt: |
+  Use Serena for current-code symbol navigation, references and refactoring.
+  Hindsight is the sole durable agent memory: consult it for past decisions,
+  then verify those decisions against current code. Do not create Serena memories
+  or perform onboarding. Use pi's built-in tools for ordinary files and shell.
+  After semantic edits, run the appropriate project linters and tests explicitly;
+  the write/edit lint hook does not observe changes made by MCP tools.
+# An allowlist, not only hidden MCP declarations: memory must not be reachable
+# through the REPL or silently reappear when upstream adds another tool.
+fixed_tools:
+  - get_symbols_overview
+  - find_symbol
+  - find_referencing_symbols
+  - find_implementations
+  - find_declaration
+  - get_diagnostics_for_file
+  - get_diagnostics_for_symbol
+  - replace_symbol_body
+  - insert_after_symbol
+  - insert_before_symbol
+  - rename_symbol
+  - safe_delete_symbol
+  - restart_language_server
+excluded_apis:
+  - mem
+single_project: true
+structured_tool_output: true

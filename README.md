@@ -392,6 +392,9 @@ Mason ставит LSP и форматтеры при первом запуск�
 Версии и SHA256 — в `Dockerfile`; закрепить образ можно в `.env`:
 `DEVENV_IMAGE=ghcr.io/gelerum/devenv:sha-<коммит>`.
 
+Инструменты pi: [Statix/Deadnix, Context7, Playwright, Serena и Understand Anything](docs/pi-tools.md).
+Serena используется без памяти/onboarding; долговременная память остаётся в Hindsight.
+
 Проверки: `python3 -m unittest discover -s tests -v` и
 `shellcheck entrypoint.sh agent-launcher.sh scripts/update-versions.sh`.
 Для интеграционной проверки общего lock реальным pi:

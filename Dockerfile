@@ -40,6 +40,14 @@ ARG FZF_TAB_REF=24105b15714bfec37989ed5c5b6e60f572253019
 ARG ZSH_HISTORY_SUBSTRING_SEARCH_REF=a0bdb0d47dbaba31dba2db7af8c48a5d9c74049a
 # Скиллы Claude для Obsidian: коммит kepano/obsidian-skills
 ARG OBSIDIAN_SKILLS_REF=398127736bd4ba42d767b1419fee1a927508370b
+# Agent tools: native MCP servers, upstream skills and fast non-fixing Nix lint.
+ARG NODE_VERSION=24.22.3
+ARG NODE_SHA256=4f2b175a6d53a5c617a80dba2676238a0688cef28c6da4eba35c7d844e66fcfb
+ARG STATIX_REF=d324490e45bcda1b664f28b6f88da8580deda76b
+ARG DEADNIX_VERSION=1.3.1
+ARG NIX_LINT_RUST_VERSION=1.99.1
+ARG SERENA_REF=0cef825f802d5323f8cb4bda3a5af52bf704770f
+ARG UNDERSTAND_ANYTHING_REF=b861852dda79273bd9d2e01c3160d42e2df510d2
 ARG DOTFILES_REPO=https://github.com/gelerum/dotfiles
 ARG DOTFILES_REF=83c8a2a59ea9409dbde0ec1ad6ba53570f1f2eac
 
@@ -141,6 +149,9 @@ RUN fetch "https://github.com/earendil-works/pi/releases/download/v${PI_VERSION}
  && rm /tmp/pi.tar.gz \
  && ln -s /opt/pi/pi /usr/local/bin/pi
 ENV PI_SKIP_VERSION_CHECK=1 PI_TELEMETRY=0
+# Keep generated architecture graphs inside the active worktree; never redirect
+# an isolated agent's writes into the main checkout (upstream's default).
+ENV UNDERSTAND_NO_WORKTREE_REDIRECT=1
 
 # bun - для зависимостей и тестов своих расширений pi
 ARG BUN_VERSION BUN_SHA256
@@ -148,6 +159,25 @@ RUN fetch "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/
  && unzip -qj /tmp/bun.zip bun-linux-x64/bun -d /usr/local/bin \
  && ln -s bun /usr/local/bin/bunx \
  && rm /tmp/bun.zip
+
+# Ubuntu's Node 18 is too old for Understand Anything. The upstream tarball is
+# pinned and replaces node/npm together; MCP servers never run npx @latest.
+ARG NODE_VERSION NODE_SHA256
+RUN fetch "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" "$NODE_SHA256" /tmp/node.tar.xz \
+ && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 \
+ && rm /tmp/node.tar.xz
+
+COPY pi-tools/package.json pi-tools/package-lock.json /opt/pi-tools/
+RUN cd /opt/pi-tools && npm ci --ignore-scripts --no-audit --no-fund \
+ && ln -s /opt/pi-tools/node_modules/.bin/pnpm /usr/local/bin/pnpm
+# Install Chromium and its OS libraries at build time, not on the first agent
+# call. Profiles are isolated per session; this is NOT a security boundary.
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
+RUN printf 'APT::Snapshot "%s";\n' "$APT_SNAPSHOT" > /tmp/playwright-apt.conf \
+ && APT_CONFIG=/tmp/playwright-apt.conf /opt/pi-tools/node_modules/.bin/playwright install --with-deps chromium \
+ && chmod -R a+rX /opt/playwright-browsers \
+ && rm -rf /var/lib/apt/lists/* /root/.npm /tmp/playwright-apt.conf
+COPY pi-tools/serena-context.yml /opt/pi-tools/serena-context.yml
 
 # Менеджеры версий: нужные версии языков скачиваются по файлам проекта в ~/.cache/devenv (том)
 ARG GO_VERSION GO_SHA256
@@ -174,6 +204,27 @@ RUN printf '#!/bin/sh\nexec /usr/bin/python3 /usr/local/lib/devenv/jupyter_proje
  && chmod +x /usr/local/bin/devenv-jupyter \
  && printf '#!/bin/sh\nexec /opt/jupyter/.venv/bin/ruff "$@"\n' > /usr/local/bin/devenv-ruff \
  && chmod +x /usr/local/bin/devenv-ruff
+
+# Serena's own lock pins transitive Python dependencies. Keep a dedicated venv,
+# no uvx downloads on startup and no dependency on any project's .venv.
+ARG SERENA_REF
+RUN git init -q /opt/serena \
+ && git -C /opt/serena fetch -q --depth 1 https://github.com/oraios/serena "$SERENA_REF" \
+ && git -C /opt/serena checkout -q FETCH_HEAD \
+ && UV_CACHE_DIR=/tmp/serena-uv-cache uv sync --project /opt/serena --frozen --no-dev --no-editable \
+      --python /usr/bin/python3 --no-python-downloads \
+ && rm -rf /tmp/serena-uv-cache /opt/serena/.git
+
+# Build the official skills' runtime once, with upstream's frozen pnpm lock.
+# No curl | bash installer, no post-commit hooks and no automatic repo analysis.
+ARG UNDERSTAND_ANYTHING_REF
+RUN git init -q /opt/understand-anything \
+ && git -C /opt/understand-anything fetch -q --depth 1 https://github.com/Egonex-AI/Understand-Anything "$UNDERSTAND_ANYTHING_REF" \
+ && git -C /opt/understand-anything checkout -q FETCH_HEAD \
+ && cd /opt/understand-anything/understand-anything-plugin \
+ && pnpm install --frozen-lockfile \
+ && pnpm --filter @understand-anything/core build \
+ && rm -rf /opt/understand-anything/.git /root/.local/share/pnpm /root/.cache/node-gyp
 
 # Хук для conda activate - в системном /etc/zsh/zshrc, а не в .zshrc из dotfiles
 ARG MINIFORGE_VERSION MINIFORGE_SHA256
@@ -204,6 +255,19 @@ RUN fetch "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/x86_64-
       ln -s rustup "/usr/local/bin/$p"; \
     done
 
+# Statix on crates.io is an UNRELATED project. Build the Nix linter from the
+# reviewed upstream commit, using its Cargo.lock; deadnix has a proper crate.
+# The temporary Rust toolchain/cache never enter the final layer. Do not use
+# cargo install statix or compile tools on the first edit in a session.
+ARG STATIX_REF DEADNIX_VERSION NIX_LINT_RUST_VERSION
+RUN export RUSTUP_HOME=/tmp/nix-lint-rustup CARGO_HOME=/tmp/nix-lint-cargo \
+ && rustup toolchain install "$NIX_LINT_RUST_VERSION" --profile minimal \
+ && export RUSTUP_TOOLCHAIN="$NIX_LINT_RUST_VERSION" \
+ && cargo install --locked --git https://github.com/oppiliappan/statix --rev "$STATIX_REF" --root /tmp/nix-lint-bin statix \
+ && cargo install --locked --version "$DEADNIX_VERSION" --root /tmp/nix-lint-bin deadnix \
+ && install /tmp/nix-lint-bin/bin/statix /tmp/nix-lint-bin/bin/deadnix /usr/local/bin/ \
+ && rm -rf /tmp/nix-lint-rustup /tmp/nix-lint-cargo /tmp/nix-lint-bin
+
 ENV GOPATH=/home/q/.cache/devenv/go \
     GOCACHE=/home/q/.cache/devenv/go-build \
     UV_CACHE_DIR=/home/q/.cache/devenv/uv \
@@ -223,7 +287,8 @@ ARG GID=1000
 RUN userdel -r ubuntu \
  && groupadd -g "$GID" q \
  && useradd -m -u "$UID" -g q -s /usr/bin/zsh q \
- && install -d -o q -g q /opt/node_modules /opt/hindsight
+ && install -d -o q -g q /opt/node_modules /opt/hindsight \
+ && chown -R q:q /opt/understand-anything
 
 # Nix без демона, от q. store и var/nix заранее, иначе nix уходит в chroot-хранилище
 # в ~/.local/share/nix, а chroot в контейнере запрещён
@@ -235,7 +300,14 @@ USER q
 ENV PATH=/home/q/.local/bin:$PATH
 # Точки монтирования томов, чтобы тома принадлежали q. ~/.pi/agent заранее,
 # иначе stow сделает его ссылкой на dotfiles и pi будет писать auth.json туда
-RUN mkdir -p ~/.cache/devenv ~/.local/share/nvim/mason ~/.pi/agent/sessions ~/.pi/agent/memory ~/.codex
+RUN mkdir -p ~/.cache/devenv ~/.local/share/nvim/mason ~/.pi/agent/sessions ~/.pi/agent/memory ~/.codex \
+ && mkdir -p ~/.pi/agent/skills ~/.pi/agent/agents \
+ && for skill in /opt/understand-anything/understand-anything-plugin/skills/*; do \
+      [ ! -f "$skill/SKILL.md" ] || ln -s "$skill" ~/.pi/agent/skills/; \
+    done \
+ && for agent in /opt/understand-anything/understand-anything-plugin/agents/*.md; do \
+      ln -s "$agent" ~/.pi/agent/agents/; \
+    done
 
 # Official installer stages a self-contained, bundled runtime (no npm deps).
 # Its generated settings are a template, not the host's real settings. Runtime
@@ -303,6 +375,17 @@ RUN mkdir /tmp/pi-ext \
  && BUN_INSTALL_CACHE_DIR=/tmp/bun-cache bun install --production \
  && cp -a node_modules/. /opt/node_modules/ \
  && rm -rf /tmp/pi-ext /tmp/bun-cache
+
+# Exercise the bundled browser as the actual unprivileged runtime user. This
+# catches missing .so dependencies during image build without visiting a site.
+RUN node --input-type=module -e '\
+  const { chromium } = await import("/opt/pi-tools/node_modules/playwright/index.mjs"); \
+  const browser = await chromium.launch({ headless: true, chromiumSandbox: false }); \
+  try { \
+    const page = await browser.newPage(); \
+    await page.setContent("<title>pi-tools-smoke</title><h1>Ready</h1>"); \
+    if (await page.title() !== "pi-tools-smoke") throw new Error("Browser smoke failed"); \
+  } finally { await browser.close(); }'
 
 ARG DOTFILES_REF
 LABEL devenv.dotfiles.ref=$DOTFILES_REF
