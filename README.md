@@ -35,6 +35,7 @@ echo "import '$PWD/remote.just'" > ~/.justfile
 | `just jupyter` | запустить проектный JupyterLab в фоне (kernel из `.venv`) |
 | `just jupyter-status` / `just jupyter-url` | статус / URL с секретным токеном |
 | `just jupyter-stop` | остановить Jupyter и kernels после сохранения работы |
+| `just understand [port]` | открыть готовый граф Understand Anything без Pi (порт по умолчанию `5173`, Ctrl+C — остановка) |
 | `just migrate-agents` | скопировать данные прежних схем в единое хранилище |
 | `just agents-snapshot` | сделать переносимые снимки SQLite Codex после завершения клиентов |
 | `just agents-restore` | восстановить SQLite из синхронизированных снимков |
@@ -44,6 +45,28 @@ echo "import '$PWD/remote.just'" > ~/.justfile
 Проект монтируется по тому же абсолютному пути, что и на хосте.
 `compose.local.yaml` в корне проекта подключается автоматически. На сервере
 с видеокартой `just` добавляет `compose.gpu.yaml`.
+
+### Просмотр графа Understand Anything
+
+Из каталога проекта выполните `just understand` и откройте напечатанный
+`Dashboard URL` целиком, включая `?token=…` (не публикуйте этот URL).
+Нужен уже созданный `.ua/knowledge-graph.json` или legacy
+`.understand-anything/knowledge-graph.json`; legacy-каталог имеет приоритет.
+Команда не запускает агента, не анализирует проект и не скачивает зависимости:
+используется установленный в образе dashboard. После обновления devenv нужен
+свежий образ (`just pull` или `just build`).
+
+Dashboard работает в отдельном временном контейнере до Ctrl+C, не затрагивая
+основной dev-контейнер и Jupyter. Порт публикуется только на loopback хоста;
+для второго проекта: `just understand 5174`. Для запуска на calculation:
+`ssh -N -L 5173:127.0.0.1:5173 calculation-ts`, затем откройте URL на ноутбуке.
+Если выбран другой порт, укажите его с обеих сторон SSH-проброса.
+Dashboard напечатает URL с выбранным портом.
+
+Уже внутри dev-контейнера можно запустить `devenv-understand [путь-к-проекту]`;
+по умолчанию используется текущий каталог и loopback контейнера. Для доступа
+с хоста в этом случае нужен собственный port mapping и `--host 0.0.0.0`
+после пути проекта; проще использовать `just understand` с хоста.
 
 Без just, из клона devenv, сначала подготовьте хранилище и общие тома:
 

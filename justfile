@@ -46,6 +46,13 @@ jupyter:
     {{compose}} up -d -y
     podman exec {{container}} devenv-jupyter --detach
 
+# Готовый граф без агента: отдельный одноразовый контейнер, Ctrl+C останавливает.
+# Явный publish работает и без ports в compose.local.yaml; наружу порт не открыт.
+[positional-arguments]
+understand port="5173":
+    {{volumes}}
+    {{compose}} run --rm --no-deps -p "127.0.0.1:$1:$1" --entrypoint devenv-understand dev '{{root}}' --host 0.0.0.0 --port "$1"
+
 jupyter-status:
     podman exec {{container}} devenv-jupyter --status
 

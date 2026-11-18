@@ -226,6 +226,8 @@ RUN git init -q /opt/understand-anything \
  && pnpm --filter @understand-anything/core build \
  && rm -rf /opt/understand-anything/.git /root/.local/share/pnpm /root/.cache/node-gyp
 
+COPY --chmod=755 scripts/understand-dashboard.sh /usr/local/bin/devenv-understand
+
 # Хук для conda activate - в системном /etc/zsh/zshrc, а не в .zshrc из dotfiles
 ARG MINIFORGE_VERSION MINIFORGE_SHA256
 RUN fetch "https://github.com/conda-forge/miniforge/releases/download/${MINIFORGE_VERSION}/Miniforge3-${MINIFORGE_VERSION}-Linux-x86_64.sh" "$MINIFORGE_SHA256" /tmp/miniforge.sh \
