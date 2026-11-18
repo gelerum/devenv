@@ -1,0 +1,3 @@
+# Local extension dependencies/build output are rebuilt from the pinned lock.
+jupyter/notebook-autoreload/node_modules
+jupyter/notebook-autoreload/labextension

@@ -198,6 +198,19 @@ RUN UV_PROJECT_ENVIRONMENT=/opt/jupyter/.venv UV_CACHE_DIR=/tmp/jupyter-uv-cache
       uv sync --project /opt/jupyter --frozen --no-dev \
         --python /usr/bin/python3 --no-python-downloads \
  && rm -rf /tmp/jupyter-uv-cache
+# Prebuild the local UI extension against the exact installed JupyterLab core.
+# npm ci uses integrity hashes; no npm/download/build step on container startup.
+# The content provider re-checks local edits after async fetch, before applying
+# disk contents, instead of blindly reverting every two seconds.
+COPY jupyter/notebook-autoreload /tmp/notebook-autoreload/
+RUN cd /tmp/notebook-autoreload \
+ && npm ci --ignore-scripts --no-audit --no-fund \
+ && npm test \
+ && /opt/jupyter/.venv/bin/jupyter-builder build \
+      --core-package-file=/opt/jupyter/.venv/lib/python3.12/site-packages/jupyterlab/staging/package.json . \
+ && mkdir -p /opt/jupyter/.venv/share/jupyter/labextensions/@devenv \
+ && cp -a labextension /opt/jupyter/.venv/share/jupyter/labextensions/@devenv/notebook-autoreload \
+ && rm -rf /tmp/notebook-autoreload /root/.npm
 COPY scripts/jupyter_project.py /usr/local/lib/devenv/jupyter_project.py
 RUN printf '#!/bin/sh\nexec /usr/bin/python3 /usr/local/lib/devenv/jupyter_project.py "$@"\n' \
       > /usr/local/bin/devenv-jupyter \

@@ -1,0 +1,23 @@
+{
+  "name": "@devenv/notebook-autoreload",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Safe reload of externally edited notebooks in devenv",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "@jupyterlab/apputils": "4.7.6",
+    "@jupyterlab/notebook": "4.6.6",
+    "@jupyterlab/services": "7.6.6"
+  },
+  "devDependencies": {
+    "@jupyter/builder": "1.0.0-beta.1"
+  },
+  "jupyterlab": {
+    "extension": true,
+    "outputDir": "labextension"
+  }
+}
