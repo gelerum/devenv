@@ -99,6 +99,28 @@ class ProjectJupyterTests(unittest.TestCase):
         self.prepare()
         self.assertEqual(json.loads(path.read_text()), choice)
 
+    def test_privacy_disables_news_updates_and_online_extension_manager(self):
+        self.prepare()
+        path = self.state / 'settings/@jupyterlab/apputils-extension/notification.jupyterlab-settings'
+        self.assertEqual(json.loads(path.read_text()), {
+            'fetchNews': 'false', 'checkForUpdates': False,
+        })
+        config = json.loads((self.state / 'config/jupyter_server_config.json').read_text())
+        lab = config['LabApp']
+        self.assertIsNone(lab['news_url'])
+        self.assertEqual(lab['check_for_updates_class'],
+                         'jupyterlab.handlers.announcements.NeverCheckForUpdate')
+        self.assertEqual(lab['extension_manager'], 'readonly')
+
+    def test_privacy_replaces_previously_enabled_news_on_restart(self):
+        self.prepare()
+        path = self.state / 'settings/@jupyterlab/apputils-extension/notification.jupyterlab-settings'
+        path.write_text(json.dumps({'fetchNews': 'true', 'checkForUpdates': True}))
+        self.prepare()
+        self.assertEqual(json.loads(path.read_text()), {
+            'fetchNews': 'false', 'checkForUpdates': False,
+        })
+
     def test_formatter_sort_then_format_with_project_configuration(self):
         (self.project / 'pyproject.toml').write_text('[tool.ruff]\nline-length = 90\n')
         self.prepare()

@@ -97,6 +97,12 @@ def prepare(root, python, tools, state, port, ip='0.0.0.0', prefix=None):
                 'fontSize': 16,
             }},
         })
+    # Privacy policy, not an opt-in default: also replace previously accepted
+    # news/update settings on restart. Keep operational notifications enabled.
+    write_json(settings / '@jupyterlab/apputils-extension/notification.jupyterlab-settings', {
+        'fetchNews': 'false',
+        'checkForUpdates': False,
+    })
     config_args = []
     pyproject = root / 'pyproject.toml'
     if pyproject.is_file() and 'ruff' in tomllib.loads(pyproject.read_text()).get('tool', {}):
@@ -120,7 +126,13 @@ def prepare(root, python, tools, state, port, ip='0.0.0.0', prefix=None):
                               'allowed_kernelspecs': [kernel]},
         'MappingKernelManager': {'default_kernel_name': kernel},
         'LabApp': {'user_settings_dir': str(settings),
-                   'workspaces_dir': str(state / 'workspaces')},
+                   'workspaces_dir': str(state / 'workspaces'),
+                   # Disable outbound requests even if a frontend calls the API.
+                   'news_url': None,
+                   'check_for_updates_class': 'jupyterlab.handlers.announcements.NeverCheckForUpdate',
+                   # Extensions are pinned in the image, not fetched from PyPI
+                   # via the browser. Installed themes/LSP/formatter still work.
+                   'extension_manager': 'readonly'},
         'LanguageServerManager': {
             'autodetect': False,
             'language_servers': {'basedpyright': {

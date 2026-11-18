@@ -89,6 +89,18 @@ class JupyterRuntimeTests(unittest.TestCase):
             self.api('/api/kernelspecs', authenticated=False)
         self.assertIn(error.exception.code, (401, 403))
 
+    def test_news_and_update_endpoints_are_disabled(self):
+        self.assertEqual(self.api('/lab/api/news'), {'news': []})
+        self.assertEqual(self.api('/lab/api/update'), {'notification': None})
+
+    def test_privacy_settings_match_installed_schema(self):
+        import jsonschema
+        plugin = '@jupyterlab/apputils-extension/notification'
+        schema = json.loads((self.tools / 'share/jupyter/lab/schemas' / (plugin + '.json')).read_text())
+        settings = json.loads((self.state / 'settings' / (plugin + '.jupyterlab-settings')).read_text())
+        jsonschema.validate(settings, schema)
+        self.assertEqual(settings, {'fetchNews': 'false', 'checkForUpdates': False})
+
     def test_only_project_kernel_is_exposed(self):
         result = self.api('/api/kernelspecs')
         self.assertEqual(list(result['kernelspecs']), [self.kernel_name])
