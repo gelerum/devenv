@@ -97,6 +97,24 @@ def prepare(root, python, tools, state, port, ip='0.0.0.0', prefix=None):
                 'fontSize': 16,
             }},
         })
+    # Rendered Markdown uses the theme's content font, not CodeMirror's size.
+    # Backfill existing profiles too, but preserve explicit content-font choices
+    # and unrelated theme overrides. Headings keep their relative theme sizes.
+    try:
+        theme = json.loads(theme_settings.read_text())
+        editor = json.loads(editor_settings.read_text())
+        font_size = editor.get('defaultConfig', {}).get('customStyles', {}).get('fontSize', 16)
+        if not isinstance(font_size, (int, float)) or font_size <= 0:
+            font_size = 16
+        overrides = theme.setdefault('overrides', {})
+        if overrides.get('content-font-size1') is None:
+            overrides['content-font-size1'] = f'{font_size:g}px'
+            write_json(theme_settings, theme)
+    except (ValueError, TypeError, AttributeError):
+        # Hand-edited JSON5 is valid in JupyterLab, but not in stdlib json.
+        # Never destroy it or prevent startup just to migrate a visual default.
+        print('Could not seed Markdown font size; set Theme overrides '
+              'content-font-size1 to 16px in JupyterLab Settings.', file=sys.stderr)
     # Privacy policy, not an opt-in default: also replace previously accepted
     # news/update settings on restart. Keep operational notifications enabled.
     write_json(settings / '@jupyterlab/apputils-extension/notification.jupyterlab-settings', {

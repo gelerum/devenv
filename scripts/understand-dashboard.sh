@@ -24,9 +24,14 @@ if [ ! -x "$dashboard/node_modules/.bin/vite" ]; then
     exit 1
 fi
 
+# Allow the known tailnet hostname without disabling Vite's Host checks.
+# Keep an explicit caller override for other hosts (localhost/IPs work in Vite).
+export __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS="${__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS:-calculation.tailnet.internal}"
 export GRAPH_DIR="$project" BROWSER=none
 echo "Viewing: $data/knowledge-graph.json"
 echo "Open the Dashboard URL printed below (including ?token=). Stop with Ctrl+C."
 cd "$dashboard"
-# The pinned Vite config defaults to 127.0.0.1:5173.
-exec ./node_modules/.bin/vite --strictPort "$@"
+# Podman forwards published ports to the container interface, not its loopback.
+# Publication on the host is still controlled by Compose/just (loopback or tailnet).
+# Caller flags come last so an explicit --host/--port overrides these defaults.
+exec ./node_modules/.bin/vite --strictPort --host 0.0.0.0 --port 5173 "$@"

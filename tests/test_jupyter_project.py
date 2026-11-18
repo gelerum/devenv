@@ -71,6 +71,7 @@ class ProjectJupyterTests(unittest.TestCase):
             'adaptive-theme': True,
             'preferred-light-theme': 'Catppuccin Latte',
             'preferred-dark-theme': 'Catppuccin Mocha',
+            'overrides': {'content-font-size1': '16px'},
         })
 
     def test_theme_choice_survives_restart(self):
@@ -79,7 +80,40 @@ class ProjectJupyterTests(unittest.TestCase):
         choice = {'theme': 'Catppuccin Mocha', 'adaptive-theme': False}
         path.write_text(json.dumps(choice))
         self.prepare()
+        self.assertEqual(json.loads(path.read_text()), {
+            **choice, 'overrides': {'content-font-size1': '16px'},
+        })
+
+    def test_existing_theme_overrides_are_preserved(self):
+        self.prepare()
+        path = self.state / 'settings/@jupyterlab/apputils-extension/themes.jupyterlab-settings'
+        choice = {'theme': 'Catppuccin Mocha', 'overrides': {
+            'content-font-size1': '18px', 'ui-font-size1': '14px',
+        }}
+        path.write_text(json.dumps(choice))
+        self.prepare()
         self.assertEqual(json.loads(path.read_text()), choice)
+
+    def test_markdown_backfill_matches_custom_editor_size(self):
+        self.prepare()
+        theme_path = self.state / 'settings/@jupyterlab/apputils-extension/themes.jupyterlab-settings'
+        theme_path.write_text(json.dumps({'overrides': {'ui-font-size1': '14px'}}))
+        editor_path = self.state / 'settings/@jupyterlab/codemirror-extension/plugin.jupyterlab-settings'
+        editor_path.write_text(json.dumps({'defaultConfig': {'customStyles': {'fontSize': 18}}}))
+        self.prepare()
+        self.assertEqual(json.loads(theme_path.read_text())['overrides'], {
+            'content-font-size1': '18px', 'ui-font-size1': '14px',
+        })
+
+    def test_hand_edited_json5_theme_is_not_destroyed(self):
+        self.prepare()
+        path = self.state / 'settings/@jupyterlab/apputils-extension/themes.jupyterlab-settings'
+        choice = '{ // user comment\n "theme": "Catppuccin Mocha"\n}'
+        path.write_text(choice)
+        with contextlib.redirect_stderr(io.StringIO()) as warning:
+            self.prepare()
+        self.assertEqual(path.read_text(), choice)
+        self.assertIn('content-font-size1', warning.getvalue())
 
     def test_editor_font_matches_ghostty(self):
         self.prepare()
