@@ -77,6 +77,26 @@ def prepare(root, python, tools, state, port, ip='0.0.0.0', prefix=None):
             'basedpyright.analysis.typeCheckingMode': 'standard',
         }}},
     })
+    # Follow the browser's system color scheme; seed defaults only so a later
+    # explicit choice in Settings survives server restarts.
+    theme_settings = settings / '@jupyterlab/apputils-extension/themes.jupyterlab-settings'
+    if not theme_settings.exists():
+        write_json(theme_settings, {
+            'theme': 'Catppuccin Latte',
+            'adaptive-theme': True,
+            'preferred-light-theme': 'Catppuccin Latte',
+            'preferred-dark-theme': 'Catppuccin Mocha',
+        })
+    # Match Ghostty's JetBrainsMono Nerd Font at 12 pt (16 CSS px at 96 dpi).
+    # CodeMirror defaults apply to both notebook cells and file editors.
+    editor_settings = settings / '@jupyterlab/codemirror-extension/plugin.jupyterlab-settings'
+    if not editor_settings.exists():
+        write_json(editor_settings, {
+            'defaultConfig': {'customStyles': {
+                'fontFamily': '"JetBrainsMono Nerd Font", monospace',
+                'fontSize': 16,
+            }},
+        })
     config_args = []
     pyproject = root / 'pyproject.toml'
     if pyproject.is_file() and 'ruff' in tomllib.loads(pyproject.read_text()).get('tool', {}):

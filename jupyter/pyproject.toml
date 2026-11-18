@@ -4,6 +4,7 @@ version = "0.1.0"
 requires-python = "==3.12.*"
 dependencies = [
     "jupyterlab==4.6.6",
+    "catppuccin-jupyterlab==0.2.5",
     "jupyterlab-lsp==5.3.0",
     "jupyterlab-code-formatter==3.1.0",
     "basedpyright==1.40.2",

@@ -63,6 +63,42 @@ class ProjectJupyterTests(unittest.TestCase):
         self.assertFalse(config['LanguageServerManager']['autodetect'])
         self.assertEqual(list(config['LanguageServerManager']['language_servers']), ['basedpyright'])
 
+    def test_adaptive_catppuccin_defaults(self):
+        self.prepare()
+        path = self.state / 'settings/@jupyterlab/apputils-extension/themes.jupyterlab-settings'
+        self.assertEqual(json.loads(path.read_text()), {
+            'theme': 'Catppuccin Latte',
+            'adaptive-theme': True,
+            'preferred-light-theme': 'Catppuccin Latte',
+            'preferred-dark-theme': 'Catppuccin Mocha',
+        })
+
+    def test_theme_choice_survives_restart(self):
+        self.prepare()
+        path = self.state / 'settings/@jupyterlab/apputils-extension/themes.jupyterlab-settings'
+        choice = {'theme': 'Catppuccin Mocha', 'adaptive-theme': False}
+        path.write_text(json.dumps(choice))
+        self.prepare()
+        self.assertEqual(json.loads(path.read_text()), choice)
+
+    def test_editor_font_matches_ghostty(self):
+        self.prepare()
+        path = self.state / 'settings/@jupyterlab/codemirror-extension/plugin.jupyterlab-settings'
+        self.assertEqual(json.loads(path.read_text()), {
+            'defaultConfig': {'customStyles': {
+                'fontFamily': '"JetBrainsMono Nerd Font", monospace',
+                'fontSize': 16,
+            }},
+        })
+
+    def test_editor_font_choice_survives_restart(self):
+        self.prepare()
+        path = self.state / 'settings/@jupyterlab/codemirror-extension/plugin.jupyterlab-settings'
+        choice = {'defaultConfig': {'customStyles': {'fontSize': 18}}}
+        path.write_text(json.dumps(choice))
+        self.prepare()
+        self.assertEqual(json.loads(path.read_text()), choice)
+
     def test_formatter_sort_then_format_with_project_configuration(self):
         (self.project / 'pyproject.toml').write_text('[tool.ruff]\nline-length = 90\n')
         self.prepare()
