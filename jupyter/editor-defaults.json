@@ -1,0 +1,11 @@
+{
+  "@jupyterlab/notebook-extension:tracker": {
+    "codeCellConfig": {
+      "lineNumbers": true
+    },
+    "useSystemClipboardForCells": true
+  },
+  "@jupyterlab/completer-extension:manager": {
+    "autoCompletion": true
+  }
+}

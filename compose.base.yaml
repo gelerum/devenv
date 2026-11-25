@@ -8,8 +8,11 @@ services:
     working_dir: ${PWD}
     volumes:
       - ${PWD}:${PWD}:z
+      # One local state volume per Compose project; not part of Syncthing.
+      - prime-agent:/home/q/.prime
 
 volumes:
+  prime-agent:
   devenv-cache:
     name: devenv-cache
     external: true

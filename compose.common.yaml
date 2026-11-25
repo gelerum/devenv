@@ -17,6 +17,8 @@ services:
       # extension off only after external memory is explicitly configured.
       - PI_MEMORY_REFLECT_MODEL=${PI_MEMORY_REFLECT_MODEL:-calculation/qwen3.6-35b-a3b}
       - PI_CACHE_RETENTION
+      # Optional bearer key for the local calculation provider in Pi.
+      - LLM_API_KEY
       # Языки для LSP из mason, например "go python". Пусто - все
       - DEVENV_LANGS
 

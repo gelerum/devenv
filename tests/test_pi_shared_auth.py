@@ -7,8 +7,15 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 from test_pi_config import ROOT, storage
+
+LAUNCH_PI = '''import sys
+from pathlib import Path
+from agent_storage import launch
+sys.exit(launch(Path.home(), Path(sys.argv[1]), 'pi', sys.argv[3:], binary=Path(sys.argv[2])))
+'''
 
 
 class PiSharedAuthTests(unittest.TestCase):
@@ -111,6 +118,26 @@ class PiSharedAuthTests(unittest.TestCase):
         self.assertEqual((self.home / '.pi/agent/auth.json').read_text(), 'new-login')
         self.assertEqual((self.base / 'auth/agent/auth.json').read_text(), 'new-login')
 
+    def test_pi_uses_image_extension_without_codex_handoff(self):
+        extension = self.root / 'accounts.ts'
+        extension.touch()
+        with mock.patch.object(storage, 'PI_ACCOUNTS_EXTENSION', extension), \
+                mock.patch.dict(os.environ, {'PI_MULTI_ACCOUNTS_CURRENT_AUTH': '/codex/auth.json'}), \
+                mock.patch.object(storage.subprocess, 'Popen') as popen, \
+                mock.patch.object(storage.signal, 'signal'):
+            popen.return_value.wait.return_value = 0
+            self.assertEqual(storage.launch(self.home, self.mounts, 'pi', ['--', '-ne'], binary='/pi'), 0)
+            (argv,), kwargs = popen.call_args
+            self.assertEqual(argv, ['/pi', '--extension', str(extension), '--', '-ne'])
+            self.assertEqual(storage.pi_extension_args(['--name']), ['--extension', str(extension), '--name'])
+            self.assertNotIn('PI_MULTI_ACCOUNTS_CURRENT_AUTH', kwargs['env'])
+            self.assertEqual(kwargs['env']['PI_CODING_AGENT_DIR'], str(self.base / 'auth/agent'))
+            for args in [['-ne'], ['--no-extensions'], ['auth', 'logout', 'openai'],
+                         ['mcp', 'list'], ['--extension', str(extension)]]:
+                with self.subTest(args=args):
+                    self.assertEqual(storage.pi_extension_args(args), args)
+        self.assertFalse((self.base / 'auth/profiles').exists())
+
     def test_same_container_can_run_two_pi_launchers(self):
         client = self.root / 'fake-pi'
         client.write_text('#!/bin/sh\ntouch "$1"\n'
@@ -148,48 +175,46 @@ sys.exit(s.launch(Path(sys.argv[2]),Path(sys.argv[3]),'pi',sys.argv[5:],binary=P
                     process.terminate()
                 process.communicate(timeout=10)
 
+    def real_pi_args(self, *flags):
+        return [sys.executable, '-c', LAUNCH_PI, str(self.mounts),
+                os.environ['DEVENV_TEST_PI_BINARY'], *flags]
+
+    @staticmethod
+    def real_pi_env(home):
+        return {'PATH': os.environ['PATH'], 'PI_OFFLINE': '1', 'PI_TELEMETRY': '0',
+                'PYTHONPATH': str(ROOT / 'scripts'), 'HOME': str(home)}
+
     @unittest.skipUnless(os.environ.get('DEVENV_TEST_PI_BINARY'),
                          'set DEVENV_TEST_PI_BINARY for real Pi lock integration')
     def test_real_pi_processes_wait_for_same_shared_auth_lock(self):
         other = self.root / 'other'
         storage.setup(other, self.mounts)
-        view = self.base / 'auth/agent'
-        lock = view / 'auth.json.lock'
+        fake = json.dumps({'openai': {'type': 'api_key', 'key': 'fake-test-key'}})
+        self.shared.write_text(fake)
+        # Pi resolves the auth.json symlink before locking. `auth check`
+        # may read without the lock; use a write operation to test it.
+        lock = self.shared.with_name('auth.json.lock')
         lock.mkdir()
-        runner = '''import importlib.util,sys
-from pathlib import Path
-spec=importlib.util.spec_from_file_location('s',sys.argv[1])
-s=importlib.util.module_from_spec(spec);spec.loader.exec_module(s)
-sys.exit(s.launch(Path(sys.argv[2]),Path(sys.argv[3]),'pi',
- ['auth','check','--provider','openai','--json'],binary=Path(sys.argv[4])))
-'''
-        args = [sys.executable, '-c', runner, str(ROOT / 'scripts/agent_storage.py')]
-        env = {'PATH': os.environ['PATH'], 'PI_OFFLINE': '1', 'PI_TELEMETRY': '0'}
         processes = []
         try:
-            for home in (self.home, self.home, other):
+            for home in (self.home, other):
                 processes.append(subprocess.Popen(
-                    args + [str(home), str(self.mounts), os.environ['DEVENV_TEST_PI_BINARY']],
-                    env={**env, 'HOME': str(home)}, cwd=home,
+                    self.real_pi_args('auth', 'logout', 'openai'),
+                    env=self.real_pi_env(home), cwd=home,
                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True))
-            # Each Pi must wait rather than read with a container-private lock.
             time.sleep(2)
             for process in processes:
                 self.assertIsNone(process.poll(), 'Pi bypassed the shared auth lock')
-            self.shared.write_text(json.dumps({'openai': {
-                'type': 'oauth', 'access': 'fake-test-access',
-                'refresh': 'fake-test-refresh', 'expires': 9999999999999,
-            }}))
+            self.assertEqual(self.shared.read_text(), fake)
             lock.rmdir()
             for process in processes:
                 out, err = process.communicate(timeout=30)
                 self.assertEqual(process.returncode, 0, err + out)
-                self.assertEqual(json.loads(out)['status'], 'ready')
-                self.assertNotIn('fake-test-access', out)
+            self.assertEqual(json.loads(self.shared.read_text()), {})
         finally:
-            if lock.is_dir():
-                lock.rmdir()
             for process in processes:
                 if process.poll() is None:
                     process.terminate()
                 process.communicate(timeout=10)
+            if lock.is_dir():
+                lock.rmdir()

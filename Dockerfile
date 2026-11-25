@@ -32,6 +32,8 @@ ARG CODEX_VERSION=0.171.0
 ARG CODEX_SHA256=8391d67757496bfd14893eca6cbf0c96994bf2627566ff1f018f70600c9ef6b3
 ARG PI_VERSION=1.6.0
 ARG PI_SHA256=ef77dbe4379b3bdeb425a1e1b862fa3c915c255000dfe4965c98eee96a5765d1
+ARG PRIME_AGENT_VERSION=0.10.5
+ARG PRIME_AGENT_SHA256=b9f653f4c32e83a2270f0b52edea6a72c7bdbd1f7b5c3e64c55e75157094f3b3
 ARG HINDSIGHT_VERSION=0.8.7
 ARG HINDSIGHT_SHA256=f9ad8b8c7df8c363cf05dbbfd75089424ccd54aca0cfee27ae298e28a217567d
 ARG BUN_VERSION=1.4.5
@@ -148,6 +150,16 @@ RUN fetch "https://github.com/earendil-works/pi/releases/download/v${PI_VERSION}
  && tar -xzf /tmp/pi.tar.gz -C /opt/pi --strip-components=1 \
  && rm /tmp/pi.tar.gz \
  && ln -s /opt/pi/pi /usr/local/bin/pi
+
+# Keep the bundled Python runtime and catalogs next to the native binary.
+ARG PRIME_AGENT_VERSION PRIME_AGENT_SHA256
+RUN fetch "https://github.com/PrimeIntellect-ai/prime-agent/releases/download/v${PRIME_AGENT_VERSION}/prime-agent-${PRIME_AGENT_VERSION}-linux-x64.tar.gz" "$PRIME_AGENT_SHA256" /tmp/prime-agent.tar.gz \
+ && mkdir /opt/prime-agent \
+ && tar -xzf /tmp/prime-agent.tar.gz -C /opt/prime-agent \
+ && rm /tmp/prime-agent.tar.gz \
+ && test -s /opt/prime-agent/prime-agent-runtime/pyproject.toml \
+ && /opt/prime-agent/prime-agent --version
+COPY --chmod=755 scripts/prime-agent.sh /usr/local/bin/prime-agent
 ENV PI_SKIP_VERSION_CHECK=1 PI_TELEMETRY=0
 # Keep generated architecture graphs inside the active worktree; never redirect
 # an isolated agent's writes into the main checkout (upstream's default).
@@ -211,6 +223,8 @@ RUN cd /tmp/notebook-autoreload \
  && mkdir -p /opt/jupyter/.venv/share/jupyter/labextensions/@devenv \
  && cp -a labextension /opt/jupyter/.venv/share/jupyter/labextensions/@devenv/notebook-autoreload \
  && rm -rf /tmp/notebook-autoreload /root/.npm
+# Override Lab defaults without replacing per-project settings saved in the UI.
+COPY jupyter/editor-defaults.json /opt/jupyter/.venv/share/jupyter/lab/settings/overrides.d/devenv.json
 COPY scripts/jupyter_project.py /usr/local/lib/devenv/jupyter_project.py
 RUN printf '#!/bin/sh\nexec /usr/bin/python3 /usr/local/lib/devenv/jupyter_project.py "$@"\n' \
       > /usr/local/bin/devenv-jupyter \
@@ -320,12 +334,7 @@ ENV PATH=/home/q/.local/bin:$PATH
 # иначе stow сделает его ссылкой на dotfiles и pi будет писать auth.json туда
 RUN mkdir -p ~/.cache/devenv ~/.local/share/nvim/mason ~/.pi/agent/sessions ~/.pi/agent/memory ~/.codex \
  && mkdir -p ~/.pi/agent/skills ~/.pi/agent/agents \
- && for skill in /opt/understand-anything/understand-anything-plugin/skills/*; do \
-      [ ! -f "$skill/SKILL.md" ] || ln -s "$skill" ~/.pi/agent/skills/; \
-    done \
- && for agent in /opt/understand-anything/understand-anything-plugin/agents/*.md; do \
-      ln -s "$agent" ~/.pi/agent/agents/; \
-    done
+ && install -d -m 0700 ~/.prime
 
 # Official installer stages a self-contained, bundled runtime (no npm deps).
 # Its generated settings are a template, not the host's real settings. Runtime
@@ -336,6 +345,7 @@ RUN fetch "https://registry.npmjs.org/@vectorize-io/hindsight-coding-agents/-/hi
  && tar -xzf /tmp/hindsight.tgz -C /tmp/hindsight-package --strip-components=1 \
  && HOME=/opt/hindsight bun /tmp/hindsight-package/dist/installer.js install pi \
       --server self-hosted --api-url http://calculation.tailnet.internal:9078 \
+ && test -s /opt/hindsight/.hindsight/coding-agents/dist/mcp-server.js \
  && rm -rf /tmp/hindsight-package /tmp/hindsight.tgz
 
 # Плагины zsh, которых нет в apt
@@ -423,6 +433,8 @@ LABEL devenv.dotfiles.ref=$DOTFILES_REF
 COPY managed-settings.json /etc/claude-code/managed-settings.json
 COPY entrypoint.sh /usr/local/bin/devenv-entrypoint
 COPY scripts/agent_storage.py /usr/local/lib/devenv/agent_storage.py
+COPY --chmod=644 pi-tools/openai-accounts.ts /usr/local/lib/devenv/pi-openai-accounts.ts
+COPY scripts/prime_hindsight.py /usr/local/lib/devenv/prime_hindsight.py
 COPY --chmod=755 agent-launcher.sh /usr/local/bin/devenv-agent
 RUN for agent in claude codex pi; do ln -s /usr/local/bin/devenv-agent "$HOME/.local/bin/$agent"; done
 

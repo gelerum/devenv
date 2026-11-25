@@ -42,9 +42,14 @@ class PiToolsPackagingTests(unittest.TestCase):
         self.assertIn('pnpm install --frozen-lockfile', docker)
         self.assertIn('uv sync --project /opt/serena --frozen', docker)
         self.assertIn('--git https://github.com/oppiliappan/statix --rev "$STATIX_REF"', docker)
-        self.assertIn('skills/*', docker)
-        self.assertIn('agents/*.md', docker)
+        self.assertNotIn('understand-anything-plugin/skills/', docker)
+        self.assertNotIn('understand-anything-plugin/agents/', docker)
         self.assertIn('UNDERSTAND_NO_WORKTREE_REDIRECT=1', docker)
+        self.assertIn('/usr/local/bin/devenv-understand', docker)
+        self.assertRegex(docker, r'ARG PRIME_AGENT_VERSION=\d+\.\d+\.\d+\n')
+        self.assertRegex(docker, r'ARG PRIME_AGENT_SHA256=[0-9a-f]{64}\n')
+        self.assertIn('prime-agent-runtime/pyproject.toml', docker)
+        self.assertIn('dist/mcp-server.js', docker)
 
 
 @unittest.skipUnless(os.environ.get('DEVENV_TEST_PI_TOOLS') == '1',
@@ -60,10 +65,11 @@ class InstalledPiToolsTests(unittest.TestCase):
         self.command('/opt/serena/.venv/bin/serena', '--help')
         self.command('/opt/pi-tools/node_modules/.bin/playwright-mcp', '--help')
 
-    def test_upstream_skills_and_agents_are_installed(self):
+    def test_understand_is_standalone_and_prime_is_installed(self):
         home = Path.home() / '.pi/agent'
-        self.assertTrue((home / 'skills/understand/SKILL.md').is_file())
-        self.assertTrue((home / 'agents/project-scanner.md').is_file())
+        self.assertFalse((home / 'skills/understand/SKILL.md').is_file())
+        self.assertFalse((home / 'agents/project-scanner.md').is_file())
+        self.command('prime-agent', '--version')
         self.command('node', '--input-type=module', '-e',
                      "import('/opt/understand-anything/understand-anything-plugin/packages/core/dist/index.js')")
 

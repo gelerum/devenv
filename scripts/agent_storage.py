@@ -21,6 +21,8 @@ from urllib.parse import urlsplit
 import tomllib
 
 AGENTS = ("claude", "codex", "pi")
+PI_ACCOUNTS_EXTENSION = Path("/usr/local/lib/devenv/pi-openai-accounts.ts")
+PI_NATIVE_COMMANDS = {"auth", "config", "install", "list", "mcp", "remove", "update"}
 HINDSIGHT_TASK_GUIDANCE = (
     "Scope clarification for the retrieval rules above: a new task calls for memory "
     "only when it depends on project history, prior decisions, conventions, or unresolved work. "
@@ -60,9 +62,9 @@ FILES = {
         "auth.json": "auth/auth.json",
     },
 }
-# Pi locks <agent-dir>/auth.json.lock with realpath=False. A file symlink
-# alone would share credentials but leave each container with its own lock.
-# This shared agent-dir view redirects non-auth resources to native paths.
+# The pinned Pi locks the realpath of auth.json, including through symlinks.
+# The shared agent-dir view selects the credential store; non-auth resources
+# continue to resolve to the container's native paths.
 PI_VIEW_DIRS = (
     "agents", "extensions", "skills", "prompts", "themes", "sessions", "memory",
     "subagents", "bin", "npm", "git", "tmp", "tools",
@@ -522,17 +524,18 @@ def hindsight_project(directory):
     return root, re.sub(r"[^a-zA-Z0-9]", "-", legacy_path)
 
 
-def prepare_hindsight(home, mounts, runtime=Path("/opt/hindsight"), cwd=None):
-    """Wire the official pinned runtime; credentials never enter synced config."""
-    base = mounts / "pi"
+def read_hindsight_config(base):
     config_path = base / "config/hindsight.json"
     config = json.loads(config_path.read_text()) if config_path.is_file() else {}
     if not isinstance(config, dict) or not isinstance(config.get("enabled", False), bool):
         raise ValueError("pi/config/hindsight.json: expected object with boolean enabled")
+    return config
+
+
+def hindsight_config(base, cwd=None):
+    """Resolve the shared, explicit self-hosted project policy."""
+    config = read_hindsight_config(base)
     enabled = config.pop("enabled", False)
-    extension = str(runtime / ".hindsight/coding-agents/dist/pi.js")
-    skill = str(runtime / ".pi/agent/skills/hindsight-coding-agent")
-    env = {}
     if enabled:
         # Upstream's autoInject=none guide otherwise calls every new request a
         # reason to search. Add supported, explicit scope guidance rather than
@@ -574,25 +577,41 @@ def prepare_hindsight(home, mounts, runtime=Path("/opt/hindsight"), cwd=None):
                 raise ValueError("Hindsight requires optInOnly and explicit mapPathToBank")
         else:
             raise ValueError("Unknown Hindsight bankMode; use project-path or explicit-map")
+        return config
+    return None
+
+
+def hindsight_private_config(base, config):
+    secret = base / "auth/hindsight-api-key"
+    if secret.is_symlink() or not secret.is_file():
+        raise ValueError("Create local pi/auth/hindsight-api-key before enabling Hindsight")
+    token = secret.read_text().strip()
+    if len(token) < 32 or any(c.isspace() for c in token):
+        raise ValueError("Hindsight API key must be a single token of at least 32 characters")
+    config = dict(config, serverMode="self-hosted", apiToken=token, autoUpdate=False)
+    # Both clients may run multiple projects concurrently. Never overwrite a
+    # live session's selected bank or expose credentials in either app's settings.
+    fingerprint = hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()
+    private = base / f"auth/hindsight-runtime-{fingerprint}.json"
+    write_json(private, config)
+    return private
+
+
+def prepare_hindsight(home, mounts, runtime=Path("/opt/hindsight"), cwd=None):
+    """Wire the Pi extension; credentials never enter synced config."""
+    base = mounts / "pi"
+    config = hindsight_config(base, cwd)
+    enabled = config is not None
+    extension = str(runtime / ".hindsight/coding-agents/dist/pi.js")
+    skill = str(runtime / ".pi/agent/skills/hindsight-coding-agent")
+    env = {}
+    if enabled:
         if not Path(extension).is_file() or not (Path(skill) / "SKILL.md").is_file():
             raise ValueError("Hindsight runtime missing: rebuild the devenv image")
         legacy = home / ".pi/agent/extensions/memory.ts"
         if legacy.is_file() and 'process.env.PI_MEMORY === "0"' not in legacy.read_text():
             raise ValueError("Update dotfiles: legacy memory extension does not support PI_MEMORY=0")
-        secret = base / "auth/hindsight-api-key"
-        if secret.is_symlink() or not secret.is_file():
-            raise ValueError("Create local pi/auth/hindsight-api-key before enabling Hindsight")
-        token = secret.read_text().strip()
-        if len(token) < 32 or any(c.isspace() for c in token):
-            raise ValueError("Hindsight API key must be a single token of at least 32 characters")
-        config.update(serverMode="self-hosted", apiToken=token, autoUpdate=False)
-        # Different projects run concurrently and upstream re-reads this file.
-        # One shared filename would redirect an active session to the last
-        # project's bank. Content-addressed private configs also survive key /
-        # settings changes without mutating another running session's policy.
-        fingerprint = hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()
-        private = base / f"auth/hindsight-runtime-{fingerprint}.json"
-        write_json(private, config)
+        private = hindsight_private_config(base, config)
         (home / ".hindsight").mkdir(parents=True, exist_ok=True)
         env = {"HINDSIGHT_CONFIG": str(private), "PI_MEMORY": "0"}
     # Avoid replacing the native settings symlink. This lock serializes our
@@ -626,6 +645,20 @@ def prepare_hindsight(home, mounts, runtime=Path("/opt/hindsight"), cwd=None):
     return env
 
 
+def pi_extension_args(args):
+    # Explicit extension path keeps executable code out of synced settings and
+    # out of the dotfiles mount. Leave native CLI verbs and opt-outs untouched.
+    if args and args[0] in PI_NATIVE_COMMANDS:
+        return args
+    delimiter = args.index("--") if "--" in args else len(args)
+    options = args[:delimiter]
+    path = str(PI_ACCOUNTS_EXTENSION)
+    if (not PI_ACCOUNTS_EXTENSION.is_file() or path in options
+            or "--no-extensions" in options or "-ne" in options):
+        return args
+    return ["--extension", path, *args]
+
+
 def launch(home, mounts, agent, args, binary=None):
     binary = (
         binary
@@ -635,7 +668,22 @@ def launch(home, mounts, agent, args, binary=None):
             "pi": Path("/usr/local/bin/pi"),
         }[agent]
     )
+    if agent == "codex":
+        flag = "--dangerously-bypass-approvals-and-sandbox"
+        if flag not in args[:args.index("--") if "--" in args else len(args)]:
+            args = [flag, *args]
+        if read_hindsight_config(mounts / "pi").get("enabled", False):
+            args = [
+                "-c",
+                'mcp_servers.hindsight={command="/usr/bin/python3", '
+                'args=["/usr/local/lib/devenv/prime_hindsight.py", "codex"]}',
+                *args,
+            ]
     if not (mounts / agent).is_dir():
+        if agent == "pi":
+            env = os.environ.copy()
+            env.pop("PI_MULTI_ACCOUNTS_CURRENT_AUTH", None)
+            return os.execve(str(binary), [str(binary), *pi_extension_args(args)], env)
         os.execv(str(binary), [str(binary), *args])
     # New Pi clients share this legacy guard: coexist with each other, but
     # reject old launchers holding it exclusively (and prevent old starts).
@@ -661,8 +709,10 @@ def run_client(home, mounts, agent, args, binary):
         # paths. Only this launcher's private config may choose the endpoint
         # and allowed projects; inherited parent/subagent config must not widen it.
         env = {k: v for k, v in os.environ.items() if not k.startswith("HINDSIGHT_")}
+        env.pop("PI_MULTI_ACCOUNTS_CURRENT_AUTH", None)
         env["PI_CODING_AGENT_DIR"] = str(mounts / "pi/auth/agent")
         env.update(prepare_hindsight(home, mounts))
+        args = pi_extension_args(args)
     child = subprocess.Popen([str(binary), *args], env=env)
     # SIGINT is already delivered to the child in the foreground process group.
     signal.signal(signal.SIGINT, lambda *_: None)

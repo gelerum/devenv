@@ -28,13 +28,13 @@ agent := "podman compose --progress quiet -f '" + src + "compose.task.yaml' " + 
 volumes := "python3 '" + repo + "/scripts/agent_storage.py' init && for v in devenv-cache devenv-mason; do podman volume exists $v || podman volume create $v >/dev/null; done"
 
 # compose только для создания: каждый его вызов ~1с
-# Зайти в контейнер; удаляется после последнего шелла, если Jupyter не работает
+# Зайти в контейнер; не удалять его, пока работают Jupyter или daemon Prime.
 # [default]: без него just через import не считает рецепт рецептом по умолчанию
 [default]
 default:
     [ "$(podman inspect -f '{{{{.State.Running}}' {{container}} 2>/dev/null)" = true ] || { {{volumes}} && {{compose}} up -d -y; }
     -podman exec -it {{container}} zsh
-    [ "$(podman inspect -f '{{{{len .ExecIDs}}' {{container}})" != 0 ] || podman exec {{container}} devenv-jupyter --status >/dev/null 2>&1 || podman rm -f {{container}} >/dev/null
+    [ "$(podman inspect -f '{{{{len .ExecIDs}}' {{container}})" != 0 ] || podman exec {{container}} devenv-jupyter --status >/dev/null 2>&1 || podman exec {{container}} prime-agent status --json 2>/dev/null | grep -Eq '"status":[[:space:]]*"(current|stale)"' || podman rm -f {{container}} >/dev/null
 
 up:
     {{volumes}}
@@ -45,6 +45,12 @@ jupyter:
     {{volumes}}
     {{compose}} up -d -y
     podman exec {{container}} devenv-jupyter --detach
+
+# Оставляем проектный контейнер живым после выхода из клиента Prime.
+[positional-arguments]
+prime *args:
+    [ "$(podman inspect -f '{{{{.State.Running}}' {{container}} 2>/dev/null)" = true ] || { {{volumes}} && {{compose}} up -d -y; }
+    podman exec -it {{container}} prime-agent "$@"
 
 # Готовый граф без агента: отдельный одноразовый контейнер, Ctrl+C останавливает.
 # Явный publish работает и без ports в compose.local.yaml; наружу порт не открыт.

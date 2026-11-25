@@ -157,10 +157,14 @@ printf refreshed > "$PI_CODING_AGENT_DIR/auth.json"
         storage.setup(other, self.mounts)
         ready, finish = self.root / 'ready', self.root / 'finish'
         client_a = self.root / 'client-a'
-        client_a.write_text('#!/bin/sh\nprintf refreshed > "$1/.codex/auth.json"\n'
+        client_a.write_text('#!/bin/sh\n'
+                            '[ "$1" = --dangerously-bypass-approvals-and-sandbox ] || exit 2\n'
+                            'shift\nprintf refreshed > "$1/.codex/auth.json"\n'
                             'touch "$2"\nwhile [ ! -e "$3" ]; do sleep 0.02; done\n')
         client_b = self.root / 'client-b'
-        client_b.write_text('#!/bin/sh\nrm "$1/.codex/auth.json"\n')
+        client_b.write_text('#!/bin/sh\n'
+                            '[ "$1" = --dangerously-bypass-approvals-and-sandbox ] || exit 2\n'
+                            'shift\nrm "$1/.codex/auth.json"\n')
         client_a.chmod(0o755)
         client_b.chmod(0o755)
         runner = '''import importlib.util,sys

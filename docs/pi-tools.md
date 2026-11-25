@@ -9,14 +9,12 @@
 | Context7 | официальный HTTP MCP, без отдельного плагина | endpoint в dotfiles `pi/.pi/agent/mcp.json` |
 | Playwright MCP 0.0.85 | официальный stdio MCP + Chromium | `pi-tools/package-lock.json`; браузер скачивается при сборке |
 | Serena | официальный stdio MCP, интерфейс `tools` | upstream git commit + frozen uv.lock |
-| Understand Anything | upstream skills + определения subagents | upstream git commit + frozen pnpm-lock.yaml |
 
 Источники: [Statix](https://github.com/oppiliappan/statix),
 [Deadnix](https://github.com/astro/deadnix),
 [Context7](https://github.com/upstash/context7),
 [Playwright MCP](https://github.com/microsoft/playwright-mcp),
-[Serena](https://github.com/oraios/serena),
-[Understand Anything](https://github.com/Egonex-AI/Understand-Anything).
+[Serena](https://github.com/oraios/serena).
 
 У Context7 есть готовое расширение `@upstash/context7-pi`, но здесь оно не нужно:
 у установленного pi уже есть MCP. Аналогично не ставим старые MCP-adapter плагины,
@@ -128,19 +126,5 @@ Chromium в этой конфигурации upstream запускает без
 mounts для недоверенных страниц; при необходимости нужен отдельный контейнер.
 Не путать browser automation с набором Playwright Test в прикладном проекте.
 
-## Understand Anything
-
-Навыки доступны как `/skill:understand`, `/skill:understand-dashboard`,
-`/skill:understand-diff` и другие upstream-скиллы. Специализированные агенты
-upstream установлены в `~/.pi/agent/agents/` для существующего `subagent`.
-Полный анализ сам по себе не стартует; commit hooks не устанавливаются.
-Первый анализ может расходовать много токенов.
-
-Граф `.ua/` — производное описание текущего кода, не источник истины и не замена
-Hindsight. В образе задано `UNDERSTAND_NO_WORKTREE_REDIRECT=1`, чтобы upstream не
-перенаправлял запись из агентского worktree в основной checkout. Не анализировать
-каталоги секретов; внимательно задавать scope и `.understandignore`.
-
-Core собран заранее, dashboard использует установленный upstream runtime.
-Версии меняются осознанно: npm — через `package.json` + lock, git — через ARG REF
-в Dockerfile. Новые инструменты не обновляются неявно при запуске агента.
+Understand Anything не загружается в Pi. Standalone-просмотр уже построенных
+графов по-прежнему доступен через `just understand`; см. [README](../README.md).

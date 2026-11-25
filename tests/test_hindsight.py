@@ -1,6 +1,7 @@
 import importlib.util
 import json
 from pathlib import Path
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -10,6 +11,10 @@ ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('storage_hindsight', ROOT / 'scripts/agent_storage.py')
 storage = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(storage)
+prime_spec = importlib.util.spec_from_file_location('prime_hindsight', ROOT / 'scripts/prime_hindsight.py')
+prime = importlib.util.module_from_spec(prime_spec)
+with patch.dict(sys.modules, {'agent_storage': storage}):
+    prime_spec.loader.exec_module(prime)
 
 
 class HindsightTests(unittest.TestCase):
@@ -38,6 +43,48 @@ class HindsightTests(unittest.TestCase):
     def test_disabled_by_default(self):
         self.assertEqual(self.prepare(), {})
         self.assertFalse((self.base / 'auth/hindsight-runtime.json').exists())
+
+    def test_codex_launcher_enables_mcp_from_shared_policy(self):
+        flag = '--dangerously-bypass-approvals-and-sandbox'
+        binary = Path('/codex')
+        (self.mounts / 'codex').mkdir()
+        with patch.object(storage, 'client_lock'), patch.object(storage, 'run_client') as run:
+            storage.launch(self.home, self.mounts, 'codex', ['exec', 'prompt'], binary)
+            self.assertEqual(run.call_args.args[3], [flag, 'exec', 'prompt'])
+
+            self.put('config/hindsight.json', self.config)
+            storage.launch(self.home, self.mounts, 'codex', [flag, 'exec', 'prompt'], binary)
+            args = run.call_args.args[3]
+            self.assertEqual(args[0], '-c')
+            server = storage.tomllib.loads(args[1])['mcp_servers']['hindsight']
+            self.assertEqual(server['args'][-1], 'codex')
+            self.assertEqual(args[2:], [flag, 'exec', 'prompt'])
+
+    def test_prime_uses_same_project_bank_without_changing_pi_settings(self):
+        self.put('config/hindsight.json', self.config)
+        env = prime.mcp_environment(self.base, self.root, {
+            'HINDSIGHT_BANK_ID': 'wrong', 'HINDSIGHT_API_TOKEN': 'wrong', 'PATH': '/usr/bin',
+        })
+        private = Path(env['HINDSIGHT_CONFIG'])
+        resolved = json.loads(private.read_text())
+        self.assertEqual(resolved['bankId'], storage.hindsight_project(self.root)[1])
+        self.assertEqual(private.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(env['HINDSIGHT_MCP_HARNESS'], 'prime-agent')
+        self.assertEqual(env['HINDSIGHT_MCP_PROJECT_CWD'], str(self.root))
+        self.assertEqual(env['PATH'], '/usr/bin')
+        self.assertNotIn('HINDSIGHT_BANK_ID', env)
+        self.assertNotIn('HINDSIGHT_API_TOKEN', env)
+        self.assertEqual(json.loads((self.base / 'config/settings.json').read_text()),
+                         {'defaultModel': 'keep', 'extensions': ['/other.ts']})
+        self.assertFalse((self.home / '.pi').exists())
+
+    def test_prime_does_not_fall_back_to_cloud_when_disabled_or_unconfigured(self):
+        with self.assertRaisesRegex(ValueError, 'disabled'):
+            prime.mcp_environment(self.base, self.root, {'HINDSIGHT_CONFIG': '/other'})
+        self.put('config/hindsight.json', self.config)
+        (self.base / 'auth/hindsight-api-key').unlink()
+        with self.assertRaisesRegex(ValueError, 'hindsight-api-key'):
+            prime.mcp_environment(self.base, self.root, {})
 
     def test_private_config_and_resources_survive_recreation(self):
         self.put('config/hindsight.json', self.config)
