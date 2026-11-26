@@ -18,7 +18,14 @@ PI_BINARY = os.environ.get('DEVENV_TEST_PI_BINARY')
 MOCK_TRANSPORT = r'''
 import { appendFileSync } from "node:fs";
 import { zstdDecompressSync } from "node:zlib";
-export default function () {
+export default function (pi) {
+  pi.registerCommand("test-provider-names", {
+    async handler(_args, ctx) {
+      const ids = ["openai-codex", "openai-codex-account-2", "openai-codex-account-3", "openai-codex-account-4",
+        "openai", "openai-account-1", "openai-account-2", "openai-account-3", "openai-account-4"];
+      ctx.ui.notify(JSON.stringify(ids.map(id => ctx.modelRegistry.getProvider(id)?.name)), "info");
+    },
+  });
   globalThis.fetch = async (input, init) => {
     const request = new Request(input, init);
     const body = request.headers.get("content-encoding") === "zstd"
@@ -47,28 +54,16 @@ export default function () {
 
 @unittest.skipUnless(PI_BINARY, 'set DEVENV_TEST_PI_BINARY for real Pi account integration')
 class OpenAIAccountsTests(unittest.TestCase):
-    def test_account_switch_routes_next_request_without_mutating_auth_or_defaults(self):
-        self.check_switch('openai', 'gpt-5', 'OpenAI — аккаунт 4', 'openai-account-4', [
-            ('OpenAI — аккаунт 2', 'openai-account-2', 'two'),
-            ('OpenAI — аккаунт 3', 'openai-account-3', 'three'),
-            ('OpenAI — аккаунт 1', 'openai-account-1', 'one'),
-        ])
-
     def test_codex_uses_original_login_and_separate_slot_in_same_session(self):
-        self.check_switch('openai-codex', 'gpt-6.2-sol', 'Codex — аккаунт 3', 'openai-codex-account-3', [
-            ('Codex — аккаунт 2', 'openai-codex-account-2', 'second'),
-            ('Codex — основной вход', 'openai-codex', 'primary'),
-            ('Codex — аккаунт 2', 'openai-codex-account-2', 'second'),
-        ])
-
-    def check_switch(self, default, model, empty_label, empty_id, selections):
-        codex = default == 'openai-codex'
+        default, model = 'openai-codex', 'gpt-6.2-sol'
+        labels = [f'OpenAI Codex {n}' for n in range(1, 5)]
+        selections = [(labels[1], 'openai-codex-account-2', 'second'),
+                      (labels[0], 'openai-codex', 'primary'),
+                      (labels[1], 'openai-codex-account-2', 'second')]
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             auth = root / 'auth.json'
             def token(name):
-                if not codex:
-                    return f'fake-access-{name}'
                 claim = {'https://api.openai.com/auth': {'chatgpt_account_id': name}}
                 payload = base64.b64encode(json.dumps(claim).encode()).decode()
                 return f'fake.{payload}.signature'
@@ -79,6 +74,7 @@ class OpenAIAccountsTests(unittest.TestCase):
 
             initial_auth = {provider: oauth(name) for _, provider, name in selections}
             initial_auth['openai'] = {'type': 'api_key', 'key': 'sk-fake-original'}
+            initial_auth['openai-account-1'] = oauth('legacy')
             auth.write_text(json.dumps(initial_auth))
             auth.chmod(0o600)
             original_auth = auth.read_bytes()
@@ -135,8 +131,10 @@ class OpenAIAccountsTests(unittest.TestCase):
                     menu = receive(type='extension_ui_request', method='select')
                     if active:
                         self.assertIn(f'{active} ●', menu['options'])
+                    self.assertCountEqual([option.removesuffix(' ●').removesuffix(' (добавить вход)')
+                                           for option in menu['options']], labels)
                     choice = next(option for option in menu['options'] if option.startswith(label))
-                    self.assertEqual('добавить вход' in choice, label == empty_label)
+                    self.assertEqual('добавить вход' in choice, label in labels[2:])
                     send('extension_ui_response', id=menu['id'], value=choice)
                     event = receive(type='extension_ui_request', method=method)
                     receive(type='response', id='switch')
@@ -146,9 +144,12 @@ class OpenAIAccountsTests(unittest.TestCase):
                     send('get_state', id='initial')
                     initial = receive(type='response', id='initial')['data']
                     self.assertEqual(initial['model']['provider'], default)
-                    empty = switch(empty_label, active='Codex — основной вход' if codex else None,
-                                   method='set_editor_text')
-                    self.assertEqual(empty['text'], f'/login {empty_id}')
+                    send('prompt', id='names', message='/test-provider-names')
+                    names = receive(type='extension_ui_request', method='notify')
+                    self.assertEqual(json.loads(names['message']), labels + ['OpenAI'] + [None] * 4)
+                    receive(type='response', id='names')
+                    empty = switch(labels[2], active=labels[0], method='set_editor_text')
+                    self.assertEqual(empty['text'], '/login openai-codex-account-3')
                     for index, (label, provider, _) in enumerate(selections):
                         notification = switch(label)
                         self.assertIn('Активен', notification['message'])
@@ -178,15 +179,12 @@ class OpenAIAccountsTests(unittest.TestCase):
                     reader.join(timeout=5)
 
             requests = [json.loads(line) for line in wire.read_text().splitlines()]
-            url = 'https://chatgpt.com/backend-api/codex/responses' if codex else 'https://api.openai.com/v1/responses'
+            url = 'https://chatgpt.com/backend-api/codex/responses'
             names = [name for _, _, name in selections]
             self.assertEqual([r['url'] for r in requests], [url] * len(names))
             self.assertEqual([r['authorization'] for r in requests], [f'Bearer {token(name)}' for name in names])
-            self.assertEqual([r['account'] for r in requests], names if codex else [None] * len(names))
+            self.assertEqual([r['account'] for r in requests], names)
             self.assertIn('test prompt 0', json.dumps(requests[-1]['body']['input']))
-            if not codex:
-                for request in requests:
-                    self.assertNotIn('max_output_tokens', request['body'])
             for name in names:
                 self.assertNotIn(token(name), ''.join(lines))
             self.assertNotIn('fake-refresh-', ''.join(lines))
@@ -197,10 +195,11 @@ class OpenAIAccountsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             auth = root / 'auth.json'
-            auth.write_text(json.dumps({'openai-account-1': {'type': 'oauth', 'access': 'fake-access-one',
-                                                            'refresh': 'fake-refresh-one', 'expires': 9999999999999}}))
+            slot = 'openai-codex-account-2'
+            auth.write_text(json.dumps({slot: {'type': 'oauth', 'access': 'fake-access-one',
+                                              'refresh': 'fake-refresh-one', 'expires': 9999999999999}}))
             auth.chmod(0o600)
-            (root / 'models.json').write_text(json.dumps({'providers': {'openai-account-1': {
+            (root / 'models.json').write_text(json.dumps({'providers': {slot: {
                 'models': [{'id': 'custom-azure', 'api': 'azure-openai-responses',
                             'baseUrl': 'https://wrong.invalid/v1'}],
             }}}))
@@ -209,7 +208,7 @@ class OpenAIAccountsTests(unittest.TestCase):
             wire = root / 'wire.jsonl'
             result = subprocess.run(
                 [PI_BINARY, '-ne', '-e', str(mock), '-e', str(EXTENSION), '--no-session',
-                 '--model', 'openai-account-1/custom-azure', '-p', 'test prompt'],
+                 '--model', f'{slot}/custom-azure', '-p', 'test prompt'],
                 cwd=root, capture_output=True, text=True, timeout=20,
                 env={'PATH': os.environ['PATH'], 'HOME': directory, 'PI_CODING_AGENT_DIR': directory,
                      'PI_OFFLINE': '1', 'PI_TELEMETRY': '0', 'MOCK_REQUESTS': str(wire),
@@ -219,4 +218,4 @@ class OpenAIAccountsTests(unittest.TestCase):
             self.assertNotIn('fake-access-one', output)
             self.assertFalse(wire.exists(), 'alternate adapter got as far as an HTTP request')
             self.assertNotEqual(result.returncode, 0, output)
-            self.assertIn('Remove the openai-account-1 entry from models.json', output)
+            self.assertIn(f'Remove the {slot} entry from models.json', output)

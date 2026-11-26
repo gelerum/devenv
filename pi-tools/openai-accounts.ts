@@ -4,11 +4,8 @@ import { getAgentDir, type ExtensionAPI } from "@earendil-works/pi-coding-agent"
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-const FAMILIES = [
-  { id: "openai", label: "OpenAI", endpoint: "https://api.openai.com/v1", api: "openai-responses" },
-  { id: "openai-codex", label: "Codex", endpoint: "https://chatgpt.com/backend-api", api: "openai-codex-responses" },
-] as const;
-type Family = typeof FAMILIES[number];
+const CODEX_ID = "openai-codex";
+const CODEX_URL = "https://chatgpt.com/backend-api";
 
 function checkSlotConfig(id: string) {
   let content: string;
@@ -33,13 +30,13 @@ function checkSlotConfig(id: string) {
   }
 }
 
-function isBuiltinModel(model: Model, family: Family): boolean {
-  return model.baseUrl === family.endpoint && model.api === family.api;
+function isBuiltinModel(model: Model): boolean {
+  return model.baseUrl === CODEX_URL && model.api === "openai-codex-responses";
 }
 
-function accountProvider(source: Provider, family: Family, id: string, name: string): Provider {
+function accountProvider(source: Provider, id: string, name: string): Provider {
   const oauth = source.auth.oauth;
-  if (!oauth) throw new Error(`The built-in ${family.id} OAuth is unavailable`);
+  if (!oauth) throw new Error("The built-in OpenAI Codex OAuth is unavailable");
   // models.json can change the API, bypassing the native stream wrapper.
   // Keep the slot blocked for this load if an override was already present,
   // and recheck before producing request auth in case one was added later.
@@ -49,14 +46,13 @@ function accountProvider(source: Provider, family: Family, id: string, name: str
     if (configError) throw configError;
     checkSlotConfig(id);
   }
-  const models = source.getModels().filter(model => isBuiltinModel(model, family));
+  const models = source.getModels().filter(isBuiltinModel);
   const byId = new Map(models.map(model => [model.id, model]));
   function wireModel<T extends Model>(model: T): T {
     const original = byId.get(model.id);
-    if (!original || !isBuiltinModel(model, family)) {
-      throw new Error(`Account slots only support built-in ${family.id} models`);
+    if (!original || !isBuiltinModel(model)) {
+      throw new Error("Account slots only support built-in OpenAI Codex models");
     }
-    // The OpenAI Responses implementation recognizes ChatGPT login by provider ID.
     // Use the original, unconfigured model on the wire, not models.json overrides.
     return original as T;
   }
@@ -65,8 +61,8 @@ function accountProvider(source: Provider, family: Family, id: string, name: str
     // another slot as cross-provider (no replay of foreign reasoning state).
     return { ...context, messages: context.messages.map(message => {
       if (message.role !== "assistant") return message;
-      if (message.provider === id) return { ...message, provider: family.id };
-      if (message.provider === family.id) return { ...message, provider: id };
+      if (message.provider === id) return { ...message, provider: CODEX_ID };
+      if (message.provider === CODEX_ID) return { ...message, provider: id };
       return message;
     }) };
   }
@@ -80,7 +76,7 @@ function accountProvider(source: Provider, family: Family, id: string, name: str
         ...options, headers: undefined, fetch: undefined,
         // Do not reuse Pi's Codex WebSocket (and server-side continuation)
         // from an earlier slot in the same conversation.
-        ...(family.id === "openai-codex" ? { transport: "sse" } : {}),
+        transport: "sse",
       } as O);
       for await (const event of stream) {
         if (event.type === "done") yield { ...event, message: { ...event.message, provider: id } };
@@ -93,9 +89,9 @@ function accountProvider(source: Provider, family: Family, id: string, name: str
   return {
     id,
     name,
-    baseUrl: family.endpoint,
-    // No OPENAI_API_KEY fallback for secondary accounts. Pin the URL at
-    // auth resolution too, so a catalog overlay cannot redirect OAuth traffic.
+    baseUrl: CODEX_URL,
+    // The slots are OAuth-only. Pin the URL at auth resolution too,
+    // so a catalog overlay cannot redirect OAuth traffic.
     auth: { oauth: {
       ...oauth,
       async login(callbacks) {
@@ -108,7 +104,7 @@ function accountProvider(source: Provider, family: Family, id: string, name: str
       },
       async toAuth(credential) {
         verifyConfig();
-        return { ...await oauth.toAuth(credential), baseUrl: family.endpoint };
+        return { ...await oauth.toAuth(credential), baseUrl: CODEX_URL };
       },
     } },
     getModels: () => models.map(model => ({ ...model, provider: id })),
@@ -118,25 +114,22 @@ function accountProvider(source: Provider, family: Family, id: string, name: str
 }
 
 export default function (pi: ExtensionAPI) {
-  const providers = builtinProviders();
-  const accounts = FAMILIES.flatMap(family => {
-    const source = providers.find(provider => provider.id === family.id);
-    if (!source?.auth.oauth || source.baseUrl !== family.endpoint) return [];
-    const stockIds = new Set(source.getModels().filter(model => isBuiltinModel(model, family)).map(model => model.id));
-    const slots = Array.from({ length: 4 }, (_, index) => {
-      const number = index + 1;
-      const primary = family.id === "openai-codex" && number === 1;
-      const id = primary ? family.id : `${family.id}-account-${number}`;
-      const label = primary ? "Codex — основной вход" : `${family.label} — аккаунт ${number}`;
-      // Leave native Codex and its existing auth.json entry completely untouched.
-      if (!primary) pi.registerProvider(accountProvider(source, family, id, label));
-      return { id, label, family, stockIds, primary };
-    });
-    return slots;
+  const source = builtinProviders().find(provider => provider.id === CODEX_ID);
+  if (!source?.auth.oauth || source.baseUrl !== CODEX_URL) return;
+  const stockIds = new Set(source.getModels().filter(isBuiltinModel).map(model => model.id));
+  const accounts = [1, 2, 3, 4].map(number => {
+    const primary = number === 1;
+    const id = primary ? CODEX_ID : `${CODEX_ID}-account-${number}`;
+    const label = `OpenAI Codex ${number}`;
+    // Override only the display name of the built-in provider. The existing
+    // provider ID, OAuth, model catalog and request code stay the same.
+    if (primary) pi.registerProvider(id, { name: label });
+    else pi.registerProvider(accountProvider(source, id, label));
+    return { id, label, primary };
   });
 
   pi.registerCommand("account", {
-    description: "Switch the OpenAI or Codex login used in this session",
+    description: "Switch the OpenAI Codex login used in this session",
     async handler(_args, ctx) {
       if (!ctx.hasUI) return;
       const idle = () => ctx.isIdle() && !ctx.hasPendingMessages();
@@ -157,11 +150,11 @@ export default function (pi: ExtensionAPI) {
         const active = ctx.model?.provider === id && loggedIn ? " ●" : "";
         return `${label}${status}${active}`;
       });
-      const answer = await ctx.ui.select("ChatGPT: какой аккаунт использовать?", choices);
+      const answer = await ctx.ui.select("Выберите аккаунт OpenAI Codex", choices);
       if (answer === undefined || !idle()) return;
       const account = sorted[choices.indexOf(answer)];
       if (!account) return;
-      const { id, label, family, stockIds, primary } = account;
+      const { id, label, primary } = account;
       if (!hasLogin(id)) {
         ctx.ui.setEditorText(`/login ${id}`);
         ctx.ui.notify("Нажмите Enter для входа, затем снова вызовите /account.", "info");
@@ -170,17 +163,17 @@ export default function (pi: ExtensionAPI) {
       // The native provider still accepts models the user already configured,
       // but account slots themselves never accept custom adapter/URL overrides.
       const available = registry.getModelsOfType("chat", id)
-        .filter(model => (primary || stockIds.has(model.id)) && isBuiltinModel(model, family));
+        .filter(model => (primary || stockIds.has(model.id)) && isBuiltinModel(model));
       let model = available.find(entry => entry.id === ctx.model?.id);
       if (!model && available.length) {
         const models = available.map(entry => entry.id);
-        const choice = await ctx.ui.select(`Выберите модель ${family.label}`, models);
+        const choice = await ctx.ui.select("Выберите модель OpenAI Codex", models);
         if (choice === undefined) return;
         model = available.find(entry => entry.id === choice);
       }
       if (!idle()) return;
       if (!model || !hasLogin(id)) {
-        ctx.ui.notify(`Нет доступной модели ${family.label} с этим входом.`, "warning");
+        ctx.ui.notify("Нет доступной модели OpenAI Codex с этим входом.", "warning");
         return;
       }
       try {
