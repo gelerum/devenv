@@ -54,7 +54,7 @@ ARG NIX_LINT_RUST_VERSION=1.99.1
 ARG SERENA_REF=0cef825f802d5323f8cb4bda3a5af52bf704770f
 ARG UNDERSTAND_ANYTHING_REF=b861852dda79273bd9d2e01c3160d42e2df510d2
 ARG DOTFILES_REPO=https://github.com/gelerum/dotfiles
-ARG DOTFILES_REF=4f0c44d331df26ab8fae235d71d26d7086270886
+ARG DOTFILES_REF=416983199d8078092961c1ad167543ba4eda35a5
 
 # dotfiles на зафиксированном коммите. Локальная сборка подменяет стадию dotfiles
 # своей папкой: --build-context dotfiles=<путь> (just build), тогда клон не нужен
