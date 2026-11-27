@@ -47,6 +47,48 @@ echo "import '$PWD/remote.just'" > ~/.justfile
 `compose.local.yaml` в корне проекта подключается автоматически. На сервере
 с видеокартой `just` добавляет `compose.gpu.yaml`.
 
+### Локальные коммиты Pi и подпись на хосте
+
+В контейнере уже есть Git и доступ на запись в репозиторий, в том числе в
+worktree `just agent <task>`. Pi коммитит только по явной просьбе, от вашего
+имени, без подписи и без push. Для изоляции изменений используйте
+worktree задачи. Не передавайте в контейнер приватный ключ, сокет агента
+подписи или учётные данные для push. Чтобы применить изменённые локальные
+правила Pi, соберите образ через `just build` с соседним `dotfiles` и
+пересоздайте контейнер перед новой сессией.
+
+Если в контейнере не видны ваши имя и email из глобального Git-конфига,
+один раз задайте их на хосте в репозитории (эти настройки общие для его worktree):
+
+```bash
+git config --local user.name 'Ваше имя'
+git config --local user.email 'ваш-email@example.org'
+```
+
+Перед публикацией откройте на хосте тот же worktree, проверьте изменения и
+убедитесь, что рабочее дерево и индекс чисты (`git status --short`). Если нужно
+подписать только последний коммит и подпись Git на хосте уже настроена:
+
+```bash
+git show HEAD
+git commit --amend --no-edit -S
+git log -1 --show-signature
+```
+
+Чтобы подписать несколько подряд идущих неопубликованных коммитов Pi на
+линейной ветке, укажите SHA родителя первого из них:
+
+```bash
+base='SHA-родителя-первого-коммита'  # замените значение на реальный SHA
+git log --oneline "$base"..HEAD
+git rebase --force-rebase --gpg-sign "$base"
+git log --show-signature "$base"..HEAD
+```
+
+Rebase переподпишет все коммиты в указанном диапазоне. Оба способа меняют
+SHA коммитов, но сохраняют ваше авторство; подпись тоже будет вашей. Публикуйте
+ветку с хоста после проверки подписей.
+
 ### Просмотр графа Understand Anything
 
 Из каталога проекта выполните `just understand` и откройте напечатанный
@@ -514,8 +556,25 @@ project_doc_fallback_filenames = ["CLAUDE.md"]
 | conda | `environment.yml` | `conda env create -f environment.yml` |
 | Nix | `flake.nix` | `nix develop` |
 
-Mason ставит LSP и форматтеры при первом запуске Neovim;
-`DEVENV_LANGS="go python"` ограничивает языки. Общие локальные хранилища:
+Mason ставит LSP, форматтеры и линтеры при первом запуске Neovim.
+`DEVENV_LANGS="go python"` ограничивает установку; без переменной ставятся все.
+Для обновления вручную можно выполнить `:MasonToolsInstall`.
+
+| `DEVENV_LANGS` | Файлы | Диагностика и форматирование в Neovim |
+|---|---|---|
+| `nextflow` | `*.nf`, `nextflow.config` | Официальный Nextflow LSP; Java уже в образе |
+| `protobuf` или `grpc` | `*.proto` | Buf LSP и `buf format`; правила проекта задаются в `buf.yaml` |
+| `yaml` | `*.yaml`, `*.yml` | YAML LSP, Prettier и yamllint (если в проекте есть `.yamllint`, `.yamllint.yaml` или `.yamllint.yml`) |
+| `json` | `*.json`, `*.jsonc` | JSON LSP и Prettier |
+| `toml` | `*.toml` | Taplo LSP и форматтер Taplo |
+
+Форматирование — при сохранении или по `<leader>cf`. В shell образа доступны
+`protoc` (генерация кода, плагины gRPC выбирает проект) и `grpcurl` (вызов
+gRPC API). После установки Buf через Mason для `buf lint` и `buf generate`
+можно обратиться к `~/.local/share/nvim/mason/bin/buf`. Для запуска пайплайнов
+используйте версию `nextflow` из окружения проекта: LSP её не заменяет.
+
+Общие локальные хранилища:
 
 - `devenv-cache` — языки, окружения conda и кеши пакетов;
 - `devenv-mason` — LSP и форматтеры;

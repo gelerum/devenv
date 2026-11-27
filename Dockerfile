@@ -6,6 +6,9 @@ ARG BAT_VERSION=0.26.1
 ARG BAT_SHA256=ad59954aa1540e526f97267f60557ea5ef4c7dcf91a0811254134537cb353a3c
 ARG NVIM_VERSION=0.12.6
 ARG NVIM_SHA256=474430d53e6264f6d6dd18db42d6dc9df3a1b56ca9e88a325bbf860e1a811d87
+# grpcurl: обновлять вручную по digest из GitHub Releases.
+ARG GRPCURL_VERSION=1.9.4
+ARG GRPCURL_SHA256=97e13d58d2733a0e62cd2571d1d5f0c02823f0d25282f08bddedf1ad9c5d1736
 ARG GO_VERSION=1.27.4
 ARG GO_SHA256=7226736c2339719cda28fbf3a54d71aa63bcefe376e98cef00034268dab24840
 ARG UV_VERSION=0.13.9
@@ -82,6 +85,7 @@ RUN apt-get update \
       stow ripgrep fd-find eza poppler-utils shellcheck \
       pkg-config libssl-dev libffi-dev zlib1g-dev libsqlite3-dev \
       nodejs npm python3 python3-venv xz-utils \
+      openjdk-21-jre-headless protobuf-compiler \
  && rm -rf /var/lib/apt/lists/* \
  && ln -s /usr/bin/fdfind /usr/local/bin/fd
 
@@ -131,6 +135,12 @@ RUN fetch "https://github.com/neovim/neovim/releases/download/v${NVIM_VERSION}/n
  && tar -xzf /tmp/nvim.tar.gz -C /opt/nvim --strip-components=1 \
  && rm /tmp/nvim.tar.gz \
  && ln -s /opt/nvim/bin/nvim /usr/local/bin/nvim
+
+ARG GRPCURL_VERSION GRPCURL_SHA256
+RUN fetch "https://github.com/fullstorydev/grpcurl/releases/download/v${GRPCURL_VERSION}/grpcurl_${GRPCURL_VERSION}_linux_x86_64.tar.gz" "$GRPCURL_SHA256" /tmp/grpcurl.tar.gz \
+ && tar -xzf /tmp/grpcurl.tar.gz -C /usr/local/bin grpcurl \
+ && rm /tmp/grpcurl.tar.gz \
+ && grpcurl -version
 
 # Codex CLI - нативный пакет, без npm; SQLite локален для устройства. Голый бинарник
 # не годится: TUI запускает фоновый сервер, которому нужны ресурсы пакета рядом с bin/
