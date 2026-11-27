@@ -59,6 +59,27 @@ understand port="5173":
     {{volumes}}
     {{compose}} run --rm --no-deps -p "127.0.0.1:$1:$1" --entrypoint devenv-understand dev '{{root}}' --host 0.0.0.0 --port "$1"
 
+# OAuth on demand: no callback ports on the long-lived project/task containers.
+[positional-arguments]
+slides-login port="8768":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    port=$1
+    if [[ ! $port =~ ^[1-9][0-9]{3,4}$ ]] || (( port < 1024 || port > 65535 )); then
+      echo 'Expected a callback port between 1024 and 65535.' >&2
+      exit 1
+    fi
+    auth="$HOME/.config/devenv/agents/pi/auth/google-slides"
+    if [[ ! -r "$auth/client.json" ]]; then
+      printf 'Save the downloaded Google OAuth Desktop app JSON as %s/client.json first.\n' "$auth" >&2
+      exit 1
+    fi
+    code=/opt/dotfiles/pi/.pi/agent/extensions/google-slides/login.ts
+    podman run --rm --init --userns=keep-id --cap-drop=ALL --security-opt=no-new-privileges \
+      --publish "127.0.0.1:$port:$port" --volume "$auth:/run/slides-auth:z" \
+      --env PI_SLIDES_AUTH_DIR=/run/slides-auth --entrypoint /usr/local/bin/bun \
+      "${DEVENV_IMAGE:-ghcr.io/gelerum/devenv:latest}" "$code" "$port"
+
 jupyter-status:
     podman exec {{container}} devenv-jupyter --status
 
